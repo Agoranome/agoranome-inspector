@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from agoranome_inspector import changes as changes_lib
+from agoranome_inspector import links as links_lib
 from agoranome_inspector import sheet as sheet_lib
 from agoranome_inspector.book import Book, entries_of
 from agoranome_inspector.canonical import canonical, sha256_hex
@@ -108,6 +109,17 @@ def publish(site_dir: str, sheet: Dict[str, Any], signer: Signer, time: Optional
         out["changes"] = book.append(signer, "changes", {
             "market": market, "from": log["from"], "to": log["to"], "file": log_file, "sha256": log_sha, "counts": log["counts"],
         }, time=time)
+    newest: Dict[str, Dict[str, Any]] = {}
+    for e in entries_of("sheet", book.entries()):
+        newest[sheet_lib.market_of(e["body"])] = e
+    sheets_now = [sheet if e["body"]["id"] == sheet["id"] else load_sheet(site, e)
+                  for e in sorted(newest.values(), key=lambda e: e["seq"])]
+    found = links_lib.build(sheets_now, sheet["id"])
+    links_file = f"links/{sheet['id']}.json"
+    links_sha = _write(site / links_file, canonical(found) + b"\n")
+    out["links"] = book.append(signer, "links", {
+        "from": found["from"], "file": links_file, "sha256": links_sha, "counts": found["counts"],
+    }, time=time)
     out["head"] = write_head(site, book)
     write_index(site, book)
     return out
@@ -168,6 +180,15 @@ def write_index(site: Path, book: Book) -> None:
     for x in sheets:
         newest[sheet_lib.market_of(x["body"])] = x
     sections = "".join(_market_section(x["body"]) for x in sorted(newest.values(), key=lambda x: -x["seq"]))
+    link_entries = entries_of("links", entries)
+    if link_entries:
+        c = link_entries[-1]["body"]["counts"]
+        sections += (f"<h2>Operators</h2><p>{c['linked_hosts']:,} hosts are linked into {c['operators']:,} operators "
+                     f"because their offers ask payment to the same address; {c['same_host']:,} hosts sell in more "
+                     f"than one market; {c['platform_addresses']:,} addresses that more than "
+                     f"{links_lib.PLATFORM_HOSTS} hosts share are a platform's and link nobody. A link is a fact "
+                     f"beside the rows, never a verdict: <a href=\"{e(link_entries[-1]['body']['file'])}\">the "
+                     f"links and their evidence</a>.</p>\n")
     rows = "".join(
         f"<tr><td>{e(sheet_lib.market_of(x['body']))}</td><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
         f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a></td>"

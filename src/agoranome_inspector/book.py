@@ -39,7 +39,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from agoranome_inspector.canonical import ZERO_HASH, canonical, digest
 from agoranome_inspector.keys import Signer, verify_signature
 
-KINDS = ("key", "sheet", "changes", "anchor", "note")
+KINDS = ("key", "sheet", "changes", "links", "anchor", "note")
 
 
 def utc_now() -> str:

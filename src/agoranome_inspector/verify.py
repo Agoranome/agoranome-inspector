@@ -46,7 +46,7 @@ from agoranome_inspector.merkle import merkle_proof, verify_proof
 from agoranome_inspector.rules import RULES
 
 MAX_BYTES = 256 * 1024 * 1024
-SAFE_PATH = re.compile(r"^(sheets|changes)/[A-Za-z0-9._-]+\.(json|csv)$")
+SAFE_PATH = re.compile(r"^(sheets|changes|links)/[A-Za-z0-9._-]+\.(json|csv)$")
 
 
 def http_get(url: str, timeout: float = 60.0) -> bytes:
@@ -202,6 +202,39 @@ def check_changes(read: Callable[[str], bytes], entries: List[Dict[str, Any]], l
                else "the change log does not match the two sheets")
 
 
+def check_links(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+                report: Report) -> None:
+    """A links file is rebuilt from the newest sheet of each market as the book stood when it was written."""
+    from agoranome_inspector import links as links_lib
+
+    body = entry["body"]
+    label = f"links {body.get('file')}"
+    newest: Dict[str, Dict[str, Any]] = {}
+    for e in entries_of("sheet", entries):
+        if e["seq"] < entry["seq"]:
+            newest[sheet_lib.market_of(e["body"])] = e
+    expected = [e["body"]["id"] for e in sorted(newest.values(), key=lambda e: e["seq"])]
+    if body.get("from") != expected:
+        report.add(label, False, f"built from {body.get('from')}, not the newest sheet of each market {expected}")
+        return
+    quiet = Report()
+    sheets = [_load_sheet(read, e, quiet) for e in sorted(newest.values(), key=lambda e: e["seq"])]
+    if any(s is None for s in sheets):
+        report.add(label, False, "a sheet it was built from could not be read")
+        return
+    try:
+        data = read(_safe(body["file"]))
+    except Exception as e:
+        report.add(label, False, f"could not read {body.get('file')} ({type(e).__name__})")
+        return
+    found = links_lib.build(sheets, json.loads(data).get("id", ""))
+    ok = (sha256_hex(data) == body.get("sha256") and data == canonical(found) + b"\n"
+          and found["counts"] == body.get("counts"))
+    report.add(label, ok, f"rebuilt from {', '.join(expected)}: {found['counts']['operators']} operators, "
+                          f"{found['counts']['same_host']} hosts in two markets" if ok
+               else "the links do not match the sheets")
+
+
 def recheck(sheet: Dict[str, Any], n: int, ask: Callable[[Dict[str, Any]], Dict[str, Any]],
             rng: Optional[random.Random] = None) -> Dict[str, Any]:
     rng = rng or random.Random()
@@ -244,6 +277,9 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
     sheet = None
     for entry in targets:
         sheet = check_sheet(read, entries, entry, report)
+    link_entries = entries_of("links", entries)
+    for entry in (link_entries if every else link_entries[-1:]):
+        check_links(read, entries, entry, report)
     anchors = entries_of("anchor", entries)
     if anchors:
         months = {m["period"] for a in anchors for m in a["body"].get("roots") or []}

@@ -132,6 +132,15 @@ What changed between two sheets, computed from the two sheets alone: `price_cut`
 `listed_price_changed`, `pay_to_changed`, `went_dark`, `came_back`, `verdict_changed`, `joined` and `left`.
 Free and public. The lab sold this as a $1 watch.
 
+## Operator links
+
+Beside each sheet, `links/<id>.json` says which hosts one operator seems to run, from the newest sheet of each
+market alone. Hosts whose live offers ask payment to the same address (an x402 pay-to or an MPP recipient) are
+linked, and hosts joined that way form one operator. An address that more than 5 hosts share is a platform's (a
+processor's or a facilitator's) and links nobody; it is listed with its host count. A host that sells in more than
+one market is listed with its rows in each. Every link carries its evidence. A link is a fact beside the rows,
+never a verdict: no row's verdict changes because of it. The verifier rebuilds the file from the sheets.
+
 ## The open book
 
 A JSON Lines file, `book.jsonl`, one entry a line, that only grows:
@@ -147,6 +156,7 @@ A JSON Lines file, `book.jsonl`, one entry a line, that only grows:
 - Entry 0 is a `key` entry naming the signing key, signed by it. A later `key` entry, signed by the key in
   force, hands over to a new key. A key's `kid` is its RFC 7638 thumbprint.
 - Kinds: `key`; `sheet` (the file, its SHA-256, the Merkle root of its rows, the count and the summary); `changes`;
+  `links` (the operator links, from the newest sheet of each market);
   `anchor` (the lab's monthly receipt roots as read on a day); `note` (a correction, a dispute and its answer, a
   change of method). Nothing is edited or removed. A correction is a new entry.
 
@@ -165,7 +175,7 @@ book. From then on a receipt's proof from the lab must fold into the root the bo
 ## The published site
 
 Plain files that any static host can serve: `book.jsonl`, `head.json`, `sheets/<id>.json`, `sheets/<id>.csv`,
-`changes/<id>.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
+`changes/<id>.json`, `links/<id>.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
 compares a sheet with the sheet just before it in the same market, and the verifier checks that it does. With no
 `--id`, `verify` checks the newest sheet of each market.
 
