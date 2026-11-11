@@ -25,7 +25,9 @@ def test_the_sheet_page_wears_the_sites_theme(tmp_path):
     # No best-buy sheet yet, so the menu doesn't offer one.
     assert "best-buy/index.html" not in page
     # The same figures as before, and the files the page needs, with nothing fetched from another origin.
-    assert "x402: sheet x402-2026-11-16" in page and "Check it yourself" in page
+    assert "x402: sheet x402-2026-11-16" in page and "<h2>The open book</h2>" in page
+    # No install line and no GitHub address on the page (Shariar 2026-11-11: no "Check it yourself").
+    assert "Check it yourself" not in page and "pip install" not in page and "github.com" not in page
     assert (tmp_path / "style.css").read_text() == theme.CSS and "--page: #0a121b" in theme.CSS
     assert (tmp_path / "mark.svg").read_text().startswith("<svg")
     assert "@import" not in theme.CSS and "url(http" not in theme.CSS

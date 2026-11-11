@@ -440,15 +440,13 @@ def write_index(site: Path, book: Book) -> None:
     body = f"""<p class="eyebrow">Agoranome inspector</p>
 <h1>The open sheet</h1>
 <p class="lead">Paid endpoints that machines buy from, asked for their offer without paying and judged by a published
-rule. Free, under {e(LICENCE)}. Every figure here is signed in the open book and can be checked with one command.</p>
+rule. Free, under {e(LICENCE)}. Every figure here is signed in the open book.</p>
 {sections}<h2>Every sheet</h2>
 <table><tr><th>Market</th><th>Sheet</th><th>Rows</th><th>Files</th><th>Merkle root</th></tr>{rows}</table>
-<h2>Check it yourself</h2>
-<pre>pip install "git+https://github.com/Agoranome/agoranome-inspector"
-agoranome-inspector verify &lt;this site's URL&gt; --key={e(entries[0]['body']['key']['kid'])}</pre>
-<p>The book: <a href="book.jsonl">book.jsonl</a> ({len(entries):,} entries). Newest entry:
-<code>{e(str(entries[-1]['seq']))}:{e(entries[-1]['hash'])}</code>. Keep it, and check later that the book still holds
-it with <code>--since</code>.</p>"""
+<h2>The open book</h2>
+<p>Every figure above is an entry in <a href="book.jsonl">the book</a> ({len(entries):,} entries), signed with the key
+<code>{e(entries[0]['body']['key']['kid'])}</code>. The newest entry is
+<code>{e(str(entries[-1]['seq']))}:{e(entries[-1]['hash'])}</code>.</p>"""
     # agoranome.com's theme around the same content (Shariar 2026-11-11: "this should be theme, to match rest of the
     # website"); style.css and mark.svg are written beside the page.
     theme.write_assets(site)
