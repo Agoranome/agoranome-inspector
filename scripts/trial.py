@@ -20,6 +20,7 @@ from agoranome_inspector.fetch import SafeFetcher
 from agoranome_inspector.keys import Signer
 from agoranome_inspector.measure import Settings, ask_all
 from agoranome_inspector.publish import publish
+from agoranome_inspector.rule import _once, answer
 from agoranome_inspector.verify import verify
 
 
@@ -39,8 +40,7 @@ def mismatches(built: dict) -> dict:
     """Every row whose price or pay-to is not as listed, by shape: the verdicts, how many listed options it has, and
     for each differing option its scheme and the ratio of the live amount to the listed one. Counts and shapes
     only; no host or URL is printed."""
-    rows = [r for r in built["rows"] if r["verdict"]["answer"] == "payable"
-            and (r["verdict"]["price"] not in ("as_listed", "not_listed") or r["verdict"]["pay_to"] != "as_listed")]
+    rows = _differing(built["rows"])
     shapes, ratios, schemes, options = Counter(), Counter(), Counter(), Counter()
     for r in rows:
         v = r["verdict"]
@@ -52,6 +52,76 @@ def mismatches(built: dict) -> dict:
                 ratios[_ratio(d["asked_amount"], d["listed_amount"])] += 1
     return {"rows": len(rows), "shapes": dict(shapes.most_common()), "ratios": top(ratios, 15),
             "differing_schemes": top(schemes), "listed_options_per_row": top(options, 10)}
+
+
+def _differing(rows: list) -> list:
+    return [r for r in rows if r["verdict"]["answer"] == "payable"
+            and (r["verdict"]["price"] not in ("as_listed", "not_listed") or r["verdict"]["pay_to"] != "as_listed")]
+
+
+def _power_of_ten(asked: str, listed: str) -> bool:
+    a, b = int(asked), int(listed)
+    if not a or not b:
+        return False
+    big, small = max(a, b), min(a, b)
+    return big % small == 0 and str(big // small).strip("0") == "1"
+
+
+def why(built: dict) -> dict:
+    """Why rows differ, in counts only: is a different pay-to the same address both times, an address the listing
+    names on another option, a difference of letter case only; is a different price the same both times, a power
+    of ten off, the same ratio on every option of the row; and how a looser check (the lab's: the first listed
+    address against every live address, case ignored) would have judged the pay-to rows."""
+    rows = _differing(built["rows"])
+    pay, price, row_kinds = Counter(), Counter(), Counter()
+    for r in rows:
+        v, seen = r["verdict"], r["seen"]
+        listed_to = [o.get("pay_to") for o in r["listed"] if o.get("pay_to")]
+        live_to = [o["pay_to"] for o in seen.get("options") or [] if o.get("pay_to")]
+        again = seen.get("again")
+        second = _once(r["listed"], again)["differs"] if again and answer(again) == "payable" else []
+        by_key = {(d["network"], d["asset"], d["scheme"], d["listed_amount"]): d for d in second}
+        ratios = set()
+        compared = len([o for o in r["listed"] if o.get("network") and o.get("asset") and o.get("amount")])
+        row_kinds[f"differing options: {len(v['differs'])} of {compared} listed"] += 1
+        row_kinds[f"category {r['category']}"] += 1
+        row_kinds[f"answered on {seen.get('method')}, x402 v{seen.get('x402')}"] += 1
+        if v["pay_to"] == "different" and listed_to:
+            first = listed_to[0].lower()
+            row_kinds["pay-to row the lab's looser check would also flag"
+                      if first not in {a.lower() for a in live_to} else
+                      "pay-to row the lab's looser check would pass"] += 1
+            named = len(set(live_to))
+            row_kinds[f"pay-to row, live addresses in the offer: {'3 or more' if named >= 3 else named}"] += 1
+        for d in v["differs"]:
+            d2 = by_key.get((d["network"], d["asset"], d["scheme"], d["listed_amount"]))
+            if d["pay_to"] == "different":
+                pay[f"network {d['network'].split(':')[0]}"] += 1
+                a, b = d["asked_pay_to"], d["listed_pay_to"] or ""
+                if a.lower() == b.lower():
+                    pay["letter case only"] += 1
+                if a in listed_to:
+                    pay["live address is listed on another option"] += 1
+                if b in live_to:
+                    pay["listed address is live on another option"] += 1
+                if len(a) != len(b):
+                    pay["live and listed addresses differ in length"] += 1
+                pay["second ask: same live address" if d2 and d2["asked_pay_to"] == a else
+                    "second ask: another live address" if d2 else "second ask: option not differing"] += 1
+            if d["price"] != "as_listed":
+                ratios.add(_ratio(d["asked_amount"], d["listed_amount"]))
+                price[f"{d['price']}"] += 1
+                if _power_of_ten(d["asked_amount"], d["listed_amount"]):
+                    price["a power of ten off"] += 1
+                if d["listed_amount"] in {str(o.get("amount")) for o in seen.get("options") or []}:
+                    price["listed amount is live on another option"] += 1
+                if d["price"] == "above_listed":
+                    price["second ask: same live amount" if d2 and d2["asked_amount"] == d["asked_amount"] else
+                          "second ask: another live amount" if d2 else "second ask: option not differing"] += 1
+        if len(ratios) == 1 and len([d for d in v["differs"] if d["price"] != "as_listed"]) > 1:
+            price["row with one ratio on several options"] += 1
+    return {"hosts": len({r["host"] for r in rows}), "rows": dict(row_kinds.most_common(24)),
+            "pay_to_options": dict(pay.most_common()), "price_options": dict(price.most_common())}
 
 
 def main() -> None:
@@ -106,6 +176,7 @@ def main() -> None:
                        "live_schemes": top(Counter(o.get("scheme") for s in observed for o in s["options"]))}
     report["sheet"] = built["summary"]
     report["mismatches"] = mismatches(built)
+    report["why"] = why(built)
 
     with tempfile.TemporaryDirectory() as site:
         publish(site, built, Signer.generate())
