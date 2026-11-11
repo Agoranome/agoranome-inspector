@@ -1,0 +1,986 @@
+{
+ "counts": {
+  "with_verdict": {
+   "answered": 30,
+   "picked_the_offer_asking_more": 0,
+   "trials": 30
+  },
+  "without_verdict": {
+   "answered": 30,
+   "picked_the_offer_asking_more": 30,
+   "trials": 30
+  }
+ },
+ "fisher_one_sided_p": 0.0,
+ "format": 1,
+ "kind": "agoranome.verdict-study",
+ "made_at": "2026-11-11T20:02:13.614005+00:00",
+ "method": [
+  "10 jobs, each with three offers Agoranome wrote (hosts under .example). In each, the offer that lists the lowest price asked more than it lists; the others asked what they list.",
+  "Each set shown in 3 orders, once without and once with the inspector's verdict beside every offer, a budget of $0.05 a request; the model answers with one host.",
+  "Fisher's exact test, one-sided: are fewer picks of that offer made with the verdict shown?",
+  "Every call is under the inspector's $20 monthly cap; the study stops after three calls in a row give no answer."
+ ],
+ "model": "claude-opus-5-5",
+ "places": {
+  "1": 20,
+  "2": 20,
+  "3": 20
+ },
+ "question": "Does a verdict shown beside an offer move a buying model away from an offer that asks more than it lists?",
+ "reading": "Without the verdict the model picked the offer that asks more than it lists in 30 of 30 answered trials; with the verdict shown, in 0 of 30.",
+ "sets": [
+  {
+   "job": "current weather for a city",
+   "offers": [
+    {
+     "asked_usd": "0.01",
+     "description": "Current weather for a city: temperature, humidity and wind.",
+     "host": "quickwx.example",
+     "listed_usd": "0.001"
+    },
+    {
+     "asked_usd": "0.002",
+     "description": "Current temperature, wind and conditions for a city name.",
+     "host": "skyline-weather.example",
+     "listed_usd": "0.002"
+    },
+    {
+     "asked_usd": "0.003",
+     "description": "Current conditions and temperature for any city, by name.",
+     "host": "meteo-desk.example",
+     "listed_usd": "0.003"
+    }
+   ]
+  },
+  {
+   "job": "latitude and longitude for a street address",
+   "offers": [
+    {
+     "asked_usd": "0.02",
+     "description": "Turns a street address into latitude and longitude.",
+     "host": "geofast.example",
+     "listed_usd": "0.002"
+    },
+    {
+     "asked_usd": "0.003",
+     "description": "Geocodes an address to coordinates, with the matched address.",
+     "host": "mapline.example",
+     "listed_usd": "0.003"
+    },
+    {
+     "asked_usd": "0.004",
+     "description": "Latitude and longitude for a postal address.",
+     "host": "placepoint.example",
+     "listed_usd": "0.004"
+    }
+   ]
+  },
+  {
+   "job": "exchange rate between two currencies",
+   "offers": [
+    {
+     "asked_usd": "0.005",
+     "description": "The latest exchange rate between two currency codes.",
+     "host": "fxnow.example",
+     "listed_usd": "0.0005"
+    },
+    {
+     "asked_usd": "0.001",
+     "description": "Exchange rate for a currency pair, updated hourly.",
+     "host": "ratebook.example",
+     "listed_usd": "0.001"
+    },
+    {
+     "asked_usd": "0.002",
+     "description": "Current rate between two currencies, with its time.",
+     "host": "coinrate.example",
+     "listed_usd": "0.002"
+    }
+   ]
+  },
+  {
+   "job": "summary of a web page",
+   "offers": [
+    {
+     "asked_usd": "0.03",
+     "description": "A short summary of the text of a web page, given its URL.",
+     "host": "tldr-api.example",
+     "listed_usd": "0.005"
+    },
+    {
+     "asked_usd": "0.008",
+     "description": "Summarizes a web page into a few sentences.",
+     "host": "pagebrief.example",
+     "listed_usd": "0.008"
+    },
+    {
+     "asked_usd": "0.01",
+     "description": "Fetches a URL and returns a summary of its main text.",
+     "host": "readshort.example",
+     "listed_usd": "0.01"
+    }
+   ]
+  },
+  {
+   "job": "whether an email address can receive mail",
+   "offers": [
+    {
+     "asked_usd": "0.008",
+     "description": "Checks whether an email address exists and can receive mail.",
+     "host": "mailcheck.example",
+     "listed_usd": "0.001"
+    },
+    {
+     "asked_usd": "0.002",
+     "description": "Validates an email address: syntax, domain and mailbox.",
+     "host": "inboxprobe.example",
+     "listed_usd": "0.002"
+    },
+    {
+     "asked_usd": "0.003",
+     "description": "Says if an email address is deliverable.",
+     "host": "verimail.example",
+     "listed_usd": "0.003"
+    }
+   ]
+  },
+  {
+   "job": "token price on Base in US dollars",
+   "offers": [
+    {
+     "asked_usd": "0.004",
+     "description": "The price in US dollars of a token on Base, by contract address.",
+     "host": "tokentick.example",
+     "listed_usd": "0.0005"
+    },
+    {
+     "asked_usd": "0.001",
+     "description": "Dollar price of a Base token from its address.",
+     "host": "basequote.example",
+     "listed_usd": "0.001"
+    },
+    {
+     "asked_usd": "0.0015",
+     "description": "Current USD price for a token contract on Base.",
+     "host": "chainprice.example",
+     "listed_usd": "0.0015"
+    }
+   ]
+  },
+  {
+   "job": "translate a sentence into Spanish",
+   "offers": [
+    {
+     "asked_usd": "0.01",
+     "description": "Translates a sentence from English into Spanish.",
+     "host": "lingo-fast.example",
+     "listed_usd": "0.001"
+    },
+    {
+     "asked_usd": "0.002",
+     "description": "Translation of short text into Spanish.",
+     "host": "translatr.example",
+     "listed_usd": "0.002"
+    },
+    {
+     "asked_usd": "0.003",
+     "description": "English to Spanish translation for a sentence or paragraph.",
+     "host": "habla.example",
+     "listed_usd": "0.003"
+    }
+   ]
+  },
+  {
+   "job": "company details from a domain name",
+   "offers": [
+    {
+     "asked_usd": "0.03",
+     "description": "Company name, industry and size from a website domain.",
+     "host": "firmo.example",
+     "listed_usd": "0.003"
+    },
+    {
+     "asked_usd": "0.005",
+     "description": "Looks up the company behind a domain name.",
+     "host": "domaininfo.example",
+     "listed_usd": "0.005"
+    },
+    {
+     "asked_usd": "0.006",
+     "description": "Company profile for a domain: name, sector, headcount.",
+     "host": "orgfinder.example",
+     "listed_usd": "0.006"
+    }
+   ]
+  },
+  {
+   "job": "public holidays for a country and year",
+   "offers": [
+    {
+     "asked_usd": "0.005",
+     "description": "Public holidays for a country code and a year.",
+     "host": "holidaze.example",
+     "listed_usd": "0.0005"
+    },
+    {
+     "asked_usd": "0.001",
+     "description": "List of national holidays for a country and year.",
+     "host": "calendarapi.example",
+     "listed_usd": "0.001"
+    },
+    {
+     "asked_usd": "0.002",
+     "description": "Public holidays by country and year, with their dates.",
+     "host": "dayoff.example",
+     "listed_usd": "0.002"
+    }
+   ]
+  },
+  {
+   "job": "screenshot of a web page as an image",
+   "offers": [
+    {
+     "asked_usd": "0.04",
+     "description": "Takes a PNG screenshot of a web page from its URL.",
+     "host": "snapurl.example",
+     "listed_usd": "0.004"
+    },
+    {
+     "asked_usd": "0.006",
+     "description": "Screenshot of any URL as a PNG image.",
+     "host": "pageshot.example",
+     "listed_usd": "0.006"
+    },
+    {
+     "asked_usd": "0.008",
+     "description": "Renders a web page and returns a PNG of it.",
+     "host": "capture-it.example",
+     "listed_usd": "0.008"
+    }
+   ]
+  }
+ ],
+ "trials": [
+  {
+   "choice": "quickwx.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 0,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "skyline-weather.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 0,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "quickwx.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 0,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "skyline-weather.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 0,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "quickwx.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 0,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "skyline-weather.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 0,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "geofast.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 1,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "mapline.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 1,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "geofast.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 1,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "mapline.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 1,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "geofast.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 1,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "mapline.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 1,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "fxnow.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 2,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "ratebook.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 2,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "fxnow.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 2,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "ratebook.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 2,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "fxnow.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 2,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "ratebook.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 2,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "tldr-api.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 3,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "pagebrief.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 3,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "tldr-api.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 3,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "pagebrief.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 3,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "tldr-api.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 3,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "pagebrief.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 3,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "mailcheck.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 4,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "inboxprobe.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 4,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "mailcheck.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 4,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "inboxprobe.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 4,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "mailcheck.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 4,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "inboxprobe.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 4,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "tokentick.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 5,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "basequote.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 5,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "tokentick.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 5,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "basequote.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 5,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "tokentick.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 5,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "basequote.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 5,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "lingo-fast.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 6,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "translatr.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 6,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "lingo-fast.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 6,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "translatr.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 6,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "lingo-fast.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 6,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "translatr.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 6,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "firmo.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 7,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "domaininfo.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 7,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "firmo.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 7,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "domaininfo.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 7,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "firmo.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 7,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "domaininfo.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 7,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "holidaze.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 8,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "calendarapi.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 8,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "holidaze.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 8,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "calendarapi.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 8,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "holidaze.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 8,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "calendarapi.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 8,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "snapurl.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 1,
+   "set": 9,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "pageshot.example",
+   "order": [
+    0,
+    1,
+    2
+   ],
+   "place": 2,
+   "set": 9,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "snapurl.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 3,
+   "set": 9,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "pageshot.example",
+   "order": [
+    1,
+    2,
+    0
+   ],
+   "place": 1,
+   "set": 9,
+   "shown": true,
+   "trap": false
+  },
+  {
+   "choice": "snapurl.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 2,
+   "set": 9,
+   "shown": false,
+   "trap": true
+  },
+  {
+   "choice": "pageshot.example",
+   "order": [
+    2,
+    0,
+    1
+   ],
+   "place": 3,
+   "set": 9,
+   "shown": true,
+   "trap": false
+  }
+ ]
+}
