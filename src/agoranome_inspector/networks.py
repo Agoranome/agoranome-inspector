@@ -63,12 +63,25 @@ USDC = {
 USDC_DECIMALS = 6
 
 
+CAIP2_REFERENCE_MAX = 32
+
+
 def network(value: Any) -> Optional[str]:
-    """A network as a CAIP-2 id where the name is known, else as given (stripped)."""
+    """A network as a CAIP-2 id where the name is known, else as given (stripped).
+
+    A CAIP-2 reference is at most 32 characters. Chains named by their genesis hash (Solana, Algorand) are
+    sometimes written with the whole hash, "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", and
+    sometimes as CAIP-2 says, "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k": both name one network, so the
+    reference is cut to 32 characters."""
     text = str(value or "").strip()
     if not text:
         return None
-    return LEGACY.get(text.lower(), text)
+    if text.lower() in LEGACY:
+        return LEGACY[text.lower()]
+    namespace, sep, reference = text.partition(":")
+    if sep and namespace and len(reference) > CAIP2_REFERENCE_MAX:
+        return f"{namespace}:{reference[:CAIP2_REFERENCE_MAX]}"
+    return text
 
 
 def address(value: Any) -> Optional[str]:

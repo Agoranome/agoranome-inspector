@@ -8,7 +8,7 @@ on:
     inputs:
       sample:
         description: "Listings to ask"
-        default: "400"
+        default: "1500"
       budget:
         description: "Seconds for the asking"
         default: "900"
@@ -32,6 +32,6 @@ jobs:
       - run: pip install -e .
       - name: Trial
         env:
-          SAMPLE: ${{ github.event.inputs.sample || '400' }}
+          SAMPLE: ${{ github.event.inputs.sample || '1500' }}
           BUDGET: ${{ github.event.inputs.budget || '900' }}
         run: python scripts/trial.py --sample "$SAMPLE" --budget "$BUDGET"

@@ -124,3 +124,11 @@ def test_a_seller_cannot_bloat_a_row():
     seen = observe(fetched(402, body=json.dumps({"x402Version": 2, "accepts": [huge] * 40}).encode()))
     assert len(seen["options"]) == 16
     assert all(len(o["pay_to"]) == 200 and len(o["scheme"]) == 200 for o in seen["options"])
+
+
+def test_one_network_written_two_ways_is_one_network():
+    from agoranome_inspector.networks import network
+
+    assert network("algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=") == "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k"
+    assert network("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d") == "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+    assert network("Base") == "eip155:8453" and network("eip155:8453") == "eip155:8453"

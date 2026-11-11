@@ -27,12 +27,60 @@ def top(counter: Counter, n: int = 8) -> dict:
     return dict(counter.most_common(n))
 
 
+def _ratio(asked: str, listed: str) -> str:
+    a, b = int(asked), int(listed)
+    if not b:
+        return "listed 0"
+    r = a / b
+    return f"{r:.3g}x"
+
+
+def mismatches(built: dict, pause: float) -> dict:
+    """For every row whose price or pay-to is not as listed: how it differs, and whether the same endpoint gives
+    the same offer when asked again. Counts and shapes only; no host or URL is printed."""
+    from agoranome_inspector.probe import probe
+    from agoranome_inspector.fetch import SafeFetcher
+
+    rows = [r for r in built["rows"] if r["verdict"]["answer"] == "payable"
+            and (r["verdict"]["price"] not in ("as_listed", "not_listed") or r["verdict"]["pay_to"] == "different")]
+    time.sleep(pause)
+    fetcher = SafeFetcher()
+    cases, shapes = [], Counter()
+    for r in rows:
+        v = r["verdict"]
+        again = probe(fetcher, r["resource"], retry_pause=2.0)
+        first_live = sorted((o["network"], o["asset"], o["amount"], o["pay_to"]) for o in r["seen"]["options"])
+        second_live = sorted((o["network"], o["asset"], o["amount"], o["pay_to"]) for o in again["options"])
+        listed = r["listed"][0] if r["listed"] else {}
+        asked = v.get("asked") or {}
+        case = {
+            "price": v["price"], "pay_to": v["pay_to"],
+            "ratio": _ratio(asked["amount"], listed["amount"]) if v["price"] in ("above_listed", "below_listed")
+            and listed.get("amount") and asked.get("amount") else None,
+            "listed_options": len(r["listed"]), "live_options": len(r["seen"]["options"]),
+            "listed_schemes": sorted({o.get("scheme") or "" for o in r["listed"]}),
+            "live_schemes": sorted({o.get("scheme") or "" for o in r["seen"]["options"]}),
+            "network": listed.get("network"),
+            "x402": r["seen"].get("x402"),
+            "same_offer_when_asked_again": first_live == second_live,
+            "same_amounts_when_asked_again": [x[2] for x in first_live] == [x[2] for x in second_live],
+            "same_pay_to_when_asked_again": [x[3] for x in first_live] == [x[3] for x in second_live],
+            "resource_has_query": "?" in r["resource"],
+            "resource_has_template": "{" in r["resource"] or ":" in r["resource"].split("//", 1)[-1].split("/", 1)[-1],
+        }
+        cases.append(case)
+        shapes[(v["price"], v["pay_to"], case["same_offer_when_asked_again"])] += 1
+    return {"rows": len(rows), "shapes": {" / ".join(map(str, k)): n for k, n in shapes.most_common()},
+            "cases": cases}
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--sample", type=int, default=400)
     p.add_argument("--per-host", type=int, default=2)
     p.add_argument("--budget", type=float, default=900)
     p.add_argument("--seed", type=int, default=402)
+    p.add_argument("--reask-pause", type=float, default=10.0)
     args = p.parse_args()
 
     t0 = time.monotonic()
@@ -78,6 +126,7 @@ def main() -> None:
                        "asked_twice": sum(1 for s in observed if s.get("attempts") == 2),
                        "live_schemes": top(Counter(o.get("scheme") for s in observed for o in s["options"]))}
     report["sheet"] = built["summary"]
+    report["mismatches"] = mismatches(built, args.reask_pause)
 
     with tempfile.TemporaryDirectory() as site:
         publish(site, built, Signer.generate())
