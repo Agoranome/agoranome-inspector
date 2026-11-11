@@ -155,12 +155,76 @@ pre { background: var(--surface-solid); border: 1px solid var(--border); border-
 .footer-base { border-top: 1px solid var(--border); padding: 18px 0 28px; }
 .footer-base p { margin: 0; color: var(--muted); font-size: 0.82rem; }
 
+/* Charts (charts.py). Series colors are the data-viz method's dark categorical slots, checked on --surface-solid;
+   s0 is the grey of a context bar. Text keeps the ink colors; a mark's color only says which series it is. */
+.chart { margin: 18px 0 26px; padding: 20px 22px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
+.chart figcaption { margin-bottom: 14px; }
+.chart-title { display: block; color: var(--ink); font-weight: 650; font-size: 1.04rem; letter-spacing: -0.01em; }
+.chart-sub { display: block; color: var(--ink-2); font-size: 0.93rem; margin-top: 4px; }
+.chart-note { color: var(--muted); font-size: 0.84rem; margin: 12px 0 0; }
+.s0 { --c: #5f7488; } .s1 { --c: #3987e5; } .s2 { --c: #d95926; } .s3 { --c: #199e70; } .s4 { --c: #c98500; }
+.s5 { --c: #d55181; }
+.chart [data-v] { cursor: default; }
+.chart [data-v]:hover { filter: brightness(1.18); }
+.seg-row { display: grid; grid-template-columns: 8.5em 1fr; gap: 14px; align-items: center; margin: 10px 0; }
+.seg-name { color: var(--ink); font-weight: 600; line-height: 1.25; }
+.seg-name span { display: block; color: var(--muted); font-weight: 400; font-size: 0.8rem; }
+.seg { display: flex; gap: 2px; height: 28px; }
+.seg-part { flex: 0 1 0; min-width: 3px; display: flex; align-items: center; justify-content: center;
+  background: var(--c); overflow: hidden; }
+.seg-part:first-child { border-radius: 4px 0 0 4px; }
+.seg-part:last-child { border-radius: 0 4px 4px 0; }
+.seg-part:only-child { border-radius: 4px; }
+.seg-part b { color: #fff; font-size: 0.8rem; font-weight: 650; }
+.chart-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0; margin: 14px 0 0; }
+.chart-legend li { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.86rem; }
+.chart-legend li::marker { content: ""; }
+.chart-legend i { width: 12px; height: 12px; border-radius: 3px; background: var(--c); flex: none; }
+.bars { display: grid; gap: 6px; }
+.bar-row { display: grid; grid-template-columns: minmax(10em, 14.5em) 1fr; gap: 12px; align-items: center; }
+.bar-name { color: var(--ink-2); font-size: 0.88rem; line-height: 1.25; }
+.bar-all .bar-name, .bar-all .bar-val { color: var(--ink); font-weight: 600; }
+.bar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bar { height: 18px; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--c); flex: none; }
+.bar-val { color: var(--ink-2); font-size: 0.84rem; white-space: nowrap; }
+.cols { display: flex; gap: 10px; }
+.col-group { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.col-bars { height: 190px; display: flex; justify-content: center; gap: 2px;
+  border-bottom: 1px solid var(--border-strong); }
+.col { flex: 0 1 44px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+  min-width: 0; }
+.col-val { color: var(--ink-2); font-size: 0.78rem; margin-bottom: 4px; white-space: nowrap; }
+.col-bar { width: 100%; border-radius: 4px 4px 0 0; background: var(--c); }
+.col-name { margin-top: 8px; text-align: center; color: var(--muted); font-size: 0.8rem; line-height: 1.3; }
+.chart-scroll { overflow-x: auto; }
+.chart-svg { display: block; width: 100%; min-width: 480px; height: auto; font-family: var(--sans); }
+.chart-svg .grid { stroke: var(--border); stroke-width: 1; }
+.chart-svg .tick { fill: var(--muted); font-size: 11px; }
+.chart-svg .end { fill: var(--ink-2); font-size: 12px; }
+.chart-svg .line { fill: none; stroke: var(--c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-svg .dot { fill: var(--c); stroke: var(--surface-solid); stroke-width: 2; }
+.chart-table { margin-top: 12px; }
+.chart-table summary { color: var(--baby); cursor: pointer; font-size: 0.86rem; width: max-content; }
+.chart-table table { margin-bottom: 0; }
+.chart-tip { position: fixed; z-index: 20; pointer-events: none; max-width: 280px; padding: 8px 11px;
+  background: #0b1520; border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow);
+  font-size: 0.84rem; line-height: 1.4; }
+.chart-tip[hidden] { display: none; }
+.chart-tip strong { display: block; color: var(--ink); font-variant-numeric: tabular-nums; }
+.chart-tip span { color: var(--ink-2); }
+
 @media (max-width: 640px) {
   .nav { gap: 12px; }
   .nav-links { gap: 0; }
   .nav-links a { padding: 6px 9px; white-space: nowrap; font-size: 0.9rem; }
   .brand span { display: none; }
   .doc { padding-top: 48px; }
+  .chart { padding: 16px 14px; }
+  .seg-row, .bar-row { grid-template-columns: 1fr; gap: 4px; }
+  .bars { gap: 10px; }
+  .cols { gap: 4px; }
+  .col-name { font-size: 0.72rem; }
 }
 """
 
