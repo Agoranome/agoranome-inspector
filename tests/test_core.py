@@ -49,6 +49,18 @@ def test_keys_sign_verify_and_round_trip():
     assert again.kid == signer.kid
 
 
+def test_only_the_whole_pem_file_is_a_signing_key():
+    signer = Signer.generate()
+    pasted = '"\r\n' + signer.pem().replace("\n", "\r\n") + '  "\n'       # quotes, spaces and CRLF from a paste
+    assert Signer.from_text(pasted).kid == signer.kid
+    body = signer.pem().splitlines()[1]
+    for wrong in (signer.kid, signer.jwk["x"], body, "inspector-key.pem", ""):   # a kid or public key is 32 bytes too
+        with pytest.raises(ValueError, match="whole file keygen wrote"):
+            Signer.from_text(wrong)
+    with pytest.raises(ValueError, match="damaged"):
+        Signer.from_text(signer.pem().replace(body, "!!!!" + body[4:]))
+
+
 def _book(tmp_path, n=3):
     signer = Signer.generate()
     book = Book(str(tmp_path / "book.jsonl"))
