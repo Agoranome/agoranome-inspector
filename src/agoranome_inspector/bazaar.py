@@ -31,6 +31,7 @@ import httpx
 
 from agoranome_inspector import networks
 from agoranome_inspector.canonical import digest
+from agoranome_inspector.pick import x402_words
 from agoranome_inspector.probe import options
 
 INDEX_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -85,6 +86,7 @@ def normalize(item: Dict[str, Any]) -> Dict[str, Any]:
         "calls_30d": _int(quality.get("l30DaysTotalCalls")),
         "category": categorize(str(item.get("serviceName") or host), str(item.get("description") or ""),
                                tags, resource),
+        "words": x402_words(item) if resource else [],     # for the fair pick (pick.py): sorted words, no sentences
     }
 
 

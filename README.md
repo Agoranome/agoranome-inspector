@@ -150,6 +150,43 @@ processor's or a facilitator's) and links nobody; it is listed with its host cou
 one market is listed with its rows in each. Every link carries its evidence. A link is a fact beside the rows,
 never a verdict: no row's verdict changes because of it. The verifier rebuilds the file from the sheets.
 
+## The fair pick
+
+For a job in plain words and the most a buyer will pay for one request, the endpoints that fit, in an order no
+seller can pay for. The rule is `pick-1` (`src/agoranome_inspector/pick.py`):
+
+1. **In the running:** the row gave an offer an agent can pay on the newest sheet of its market, with a price per
+   request in US dollars (USDC on a main network for x402; for MPP a charge in USDC, pathUSD, USDT0, OUSD or by
+   card in dollars), at or under the budget, and its words match the job at least half as well as the best match.
+2. **Honest on price first:** those that asked what they list, then those not judged (the price depends on the
+   request, or two asks differed), then those that asked more than they list or named another pay-to.
+3. **Signs of delivery next.** Under `pick-1` the only sign is a Fair Offer block, the seller's published promise
+   to settle only on delivery. Buyers' reports tied to a payment, and repeat buyers read from the chain, will come
+   under a later rule, never by changing this one.
+4. **Then the lower price**, then the better match, then the address, so every tie breaks the same way.
+
+The match is Okapi BM25 (k1 1.2, b 0.75) over each listing's words: its description, name, tags and address,
+lower case, stop words dropped, a light suffix rule, each word counted at most 3 times and at most 64 distinct
+words kept. Stuffing a description with a word buys little: it only has to clear half the best match, and the
+order inside the running is honesty, delivery and price. The words are published sorted, so a seller's sentences
+are never republished and no instruction written in a listing reaches a buying agent through the pick.
+
+With each sheet, the weekly run writes `picks/<id>.json`, one row for each listing in the running with the fields
+the order uses and its words, and a `pick` entry in the book with its hash. The verifier recomputes every field
+but the words from the sheet, and checks the words' form. Anyone gets the same order:
+
+```bash
+agoranome-inspector pick https://agoranome.github.io/agoranome-inspector/ "weather forecast for a city" --budget 0.01
+agoranome-inspector mcp      # the same as two MCP tools on stdio: fair_pick and seller_row
+```
+
+`seller_row` answers one endpoint's row on the newest sheet with its Merkle proof against the signed root. Both
+tools are free and read-only. For an MCP client:
+
+```json
+{"mcpServers": {"agoranome-inspector": {"command": "agoranome-inspector", "args": ["mcp"]}}}
+```
+
 ## The shelf report card
 
 The sheets grade sellers. The shelf card grades the shelves buying agents shop from: Coinbase's x402 Bazaar, the
@@ -201,7 +238,8 @@ A JSON Lines file, `book.jsonl`, one entry a line, that only grows:
 - Entry 0 is a `key` entry naming the signing key, signed by it. A later `key` entry, signed by the key in
   force, hands over to a new key. A key's `kid` is its RFC 7638 thumbprint.
 - Kinds: `key`; `sheet` (the file, its SHA-256, the Merkle root of its rows, the count and the summary); `changes`;
-  `links` (the operator links, from the newest sheet of each market);
+  `links` (the operator links, from the newest sheet of each market); `pick` (a sheet's pick table, its hash and
+  counts);
   `anchor` (the lab's monthly receipt roots as read on a day); `pledge` (the 15% pledge's figures as the lab's
   ledger states them); `shelf` (the shelf report card, its facts and the sheets it was measured from); `note` (a
   correction, a dispute and its answer, a change of method). Nothing is edited or removed. A correction is a new entry.
@@ -221,7 +259,7 @@ book. From then on a receipt's proof from the lab must fold into the root the bo
 ## The published site
 
 Plain files that any static host can serve: `book.jsonl`, `head.json`, `sheets/<id>.json`, `sheets/<id>.csv`,
-`changes/<id>.json`, `links/<id>.json`, `shelves.json`, `pledge.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
+`changes/<id>.json`, `links/<id>.json`, `picks/<id>.json`, `shelves.json`, `pledge.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
 compares a sheet with the sheet just before it in the same market, and the verifier checks that it does. With no
 `--id`, `verify` checks the newest sheet of each market.
 

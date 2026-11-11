@@ -19,6 +19,9 @@ For anyone:
   proof SITE --resource URL [--id ID]
   verify-receipt SITE PROOF            a receipt's proof from the lab's ledger (URL or file)
 
+  pick SITE JOB [--budget USD] [--market M]   the fair pick: endpoints for a job, by the published rule pick-1
+  mcp [SITE]                           the fair pick and the sheet's rows as MCP tools (stdio)
+
 For the inspector's operator:
   keygen --out FILE                    a new signing key (keep it secret; publish the kid it prints)
   measure --out RUN.json               read the index and ask every listing with real demand
@@ -39,6 +42,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from agoranome_inspector import __version__
+
+DEFAULT_SITE = "https://agoranome.github.io/agoranome-inspector/"
 
 
 def _key(args) -> "object":
@@ -88,6 +93,27 @@ def cmd_verify_receipt(args) -> int:
     found = check_receipt(json.loads(raw), entries_of("anchor", entries))
     print(json.dumps(found, indent=2))
     return 0 if found["ok"] else 1
+
+
+def cmd_pick(args) -> int:
+    from agoranome_inspector.picking import load_tables, describe
+    from agoranome_inspector.pick import rank
+
+    try:
+        tables = load_tables(args.site, pinned_kid=args.key)
+        found = rank(tables, args.job, args.budget, market=args.market, limit=args.limit)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print(json.dumps(found, indent=2) if args.json else describe(found))
+    return 0 if found["picked"] else 2
+
+
+def cmd_mcp(args) -> int:
+    from agoranome_inspector.mcp_stdio import serve
+
+    serve(args.site, pinned_kid=args.key)
+    return 0
 
 
 def cmd_keygen(args) -> int:
@@ -173,11 +199,13 @@ def cmd_run(args) -> int:
         print(f"HELD, not published: {'; '.join(reasons)}. Look at {held} and run again with --publish-anyway "
               "to publish it.", file=sys.stderr)
         return 3
-    out = publish(args.site, built, signer)
+    words = {x["resource"]: x.get("words") or [] for x in found.get("listings") or []}
+    out = publish(args.site, built, signer, words=words)
     if reasons:
         note(args.site, signer, "Published past the check before signing, by the operator's choice: "
              + "; ".join(reasons) + ".", refs={"sheet": built["id"]})
-    print(json.dumps({"summary": built["summary"], "head": out["head"]}))
+    print(json.dumps({"summary": built["summary"], "head": out["head"],
+                      "pick_rows": out["pick"]["body"]["rows"] if out.get("pick") else None}))
     return 0
 
 
@@ -326,6 +354,21 @@ def parser() -> argparse.ArgumentParser:
     vr.add_argument("site")
     vr.add_argument("proof", help="the proof's URL or a file")
     vr.set_defaults(func=cmd_verify_receipt)
+
+    pk = sub.add_parser("pick", help="the fair pick: endpoints for a job, ranked by the published rule pick-1")
+    pk.add_argument("site", help="the published site (URL or directory)")
+    pk.add_argument("job", help="what the endpoint should do, in words")
+    pk.add_argument("--budget", help="the most to pay for one request, in US dollars")
+    pk.add_argument("--market", choices=["x402", "mpp"], help="one market only")
+    pk.add_argument("--limit", type=int, default=10)
+    pk.add_argument("--key", help="the kid the book's first key must have")
+    pk.add_argument("--json", action="store_true")
+    pk.set_defaults(func=cmd_pick)
+
+    mc = sub.add_parser("mcp", help="serve the fair pick and the sheet's rows as MCP tools on stdin and stdout")
+    mc.add_argument("site", nargs="?", default=DEFAULT_SITE, help="the published site (URL or directory)")
+    mc.add_argument("--key", help="the kid the book's first key must have")
+    mc.set_defaults(func=cmd_mcp)
 
     k = sub.add_parser("keygen", help="a new Ed25519 signing key")
     k.add_argument("--out", required=True)

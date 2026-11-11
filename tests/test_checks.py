@@ -64,6 +64,6 @@ def test_a_held_sheet_is_not_published_until_the_operator_says(tmp_path, monkeyp
     assert len(book.entries()) == before and not (site / "sheets" / "x402-2026-11-23.json").exists()
     assert main(run + ["--id", "x402-2026-11-23", "--publish-anyway"]) == 0
     entries = book.entries()
-    assert [e["kind"] for e in entries[before:]] == ["sheet", "changes", "links", "note"]
+    assert [e["kind"] for e in entries[before:]] == ["sheet", "changes", "links", "pick", "note"]
     assert entries[-1]["body"]["text"].startswith("Published past the check before signing")
     assert main(["verify", str(site), "--all"]) == 0

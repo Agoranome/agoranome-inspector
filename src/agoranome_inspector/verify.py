@@ -46,7 +46,7 @@ from agoranome_inspector.merkle import merkle_proof, verify_proof
 from agoranome_inspector.rules import RULES
 
 MAX_BYTES = 256 * 1024 * 1024
-SAFE_PATH = re.compile(r"^(sheets|changes|links)/[A-Za-z0-9._-]+\.(json|csv)$")
+SAFE_PATH = re.compile(r"^(sheets|changes|links|picks)/[A-Za-z0-9._-]+\.(json|csv)$")
 
 
 def http_get(url: str, timeout: float = 60.0) -> bytes:
@@ -235,6 +235,41 @@ def check_links(read: Callable[[str], bytes], entries: List[Dict[str, Any]], ent
                else "the links do not match the sheets")
 
 
+def check_pick(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+               report: Report) -> None:
+    """A pick table is recomputed from the sheet it names, all but the words, which are checked for form."""
+    from agoranome_inspector import pick as pick_lib
+
+    body = entry["body"]
+    label = f"pick {body.get('file')}"
+    ref = body.get("sheet") or {}
+    sheet_entry = next((e for e in entries if e["seq"] == ref.get("seq")), None)
+    if sheet_entry is None or sheet_entry["kind"] != "sheet" or sheet_entry["body"].get("id") != ref.get("id") \
+            or sheet_entry["seq"] > entry["seq"]:
+        report.add(label, False, f"names sheet {ref.get('id')} at entry {ref.get('seq')}, which the book lacks")
+        return
+    sheet = _load_sheet(read, sheet_entry, Report())
+    if sheet is None:
+        report.add(label, False, f"its sheet {ref.get('id')} could not be read or does not match the book")
+        return
+    try:
+        data = read(_safe(body["file"]))
+    except Exception as e:
+        report.add(label, False, f"could not read {body.get('file')} ({type(e).__name__})")
+        return
+    if sha256_hex(data) != body.get("sha256"):
+        report.add(label, False, f"sha256 {sha256_hex(data)}, book says {body.get('sha256')}")
+        return
+    found = json.loads(data)
+    problems = pick_lib.check_table(found, sheet)
+    if not problems and (len(found["rows"]) != body.get("rows") or found["left_out"] != body.get("left_out")
+                         or found["market"] != body.get("market") or data != canonical(found) + b"\n"):
+        problems = ["the book's counts do not match the pick table"]
+    report.add(label, not problems,
+               f"rule {found.get('rule')}: {len(found['rows']):,} rows in the running, recomputed from "
+               f"{ref.get('id')}" if not problems else "; ".join(problems))
+
+
 def check_pledge(entry: Dict[str, Any], report: Report, chain_rpc: Optional[str] = None,
                  post: Optional[Callable[[str, bytes], bytes]] = None) -> None:
     """The pledge's arithmetic in one entry, and with an RPC its transfers on the chain (pledge.py)."""
@@ -299,6 +334,14 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
     link_entries = entries_of("links", entries)
     for entry in (link_entries if every else link_entries[-1:]):
         check_links(read, entries, entry, report)
+    picks = entries_of("pick", entries)
+    if not every:
+        newest_pick: Dict[str, Dict[str, Any]] = {}
+        for e in picks:
+            newest_pick[e["body"].get("market")] = e
+        picks = sorted(newest_pick.values(), key=lambda e: e["seq"])
+    for entry in picks:
+        check_pick(read, entries, entry, report)
     anchors = entries_of("anchor", entries)
     if anchors:
         months = {m["period"] for a in anchors for m in a["body"].get("roots") or []}

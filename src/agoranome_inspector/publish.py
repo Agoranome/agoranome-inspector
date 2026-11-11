@@ -22,6 +22,7 @@ The published site is a directory any static host can serve:
   sheets/<id>.csv       the same rows as a table
   changes/<id>.json     what changed since the sheet before
   links/<id>.json       operators linked across hosts and markets
+  picks/<id>.json       the sheet's pick table: what the fair pick ranks (pick.py)
   pledge.json           the 15% pledge as the lab's ledger states it, from the newest pledge entry
   shelves.json          the shelf report card, from the newest shelf entry
   index.html            a plain page for people: the newest summary, every sheet, how to verify
@@ -32,10 +33,11 @@ Nothing published holds a secret or the index's demand counts (unless the sheet 
 import html
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from agoranome_inspector import changes as changes_lib
 from agoranome_inspector import links as links_lib
+from agoranome_inspector import pick as pick_lib
 from agoranome_inspector import sheet as sheet_lib
 from agoranome_inspector.book import Book, entries_of
 from agoranome_inspector.canonical import canonical, sha256_hex
@@ -79,8 +81,10 @@ def previous_sheet(site_dir: str, market: str) -> Optional[Dict[str, Any]]:
     return load_sheet(site, same[-1]) if same else None
 
 
-def publish(site_dir: str, sheet: Dict[str, Any], signer: Signer, time: Optional[str] = None) -> Dict[str, Any]:
-    """Write the sheet, its table and its change log, and put them into the book. A sheet id is published once."""
+def publish(site_dir: str, sheet: Dict[str, Any], signer: Signer, time: Optional[str] = None,
+            words: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+    """Write the sheet, its table and its change log, and put them into the book. A sheet id is published once.
+    With the words each listing had the same day (from the run), the sheet's pick table goes in too."""
     site = Path(site_dir)
     book = Book(str(site / BOOK))
     if not book.entries():
@@ -125,9 +129,23 @@ def publish(site_dir: str, sheet: Dict[str, Any], signer: Signer, time: Optional
     out["links"] = book.append(signer, "links", {
         "from": found["from"], "file": links_file, "sha256": links_sha, "counts": found["counts"],
     }, time=time)
+    if words is not None:
+        out["pick"] = publish_pick(site, book, out["sheet"], sheet, words, signer, time=time)
     out["head"] = write_head(site, book)
     write_index(site, book)
     return out
+
+
+def publish_pick(site: Path, book: Book, sheet_entry: Dict[str, Any], sheet: Dict[str, Any],
+                 words: Dict[str, List[str]], signer: Signer, time: Optional[str] = None) -> Dict[str, Any]:
+    """The sheet's pick table (pick.py), written to the site and put into the book."""
+    found = pick_lib.table(sheet, words)
+    pick_file = f"picks/{sheet['id']}.json"
+    pick_sha = _write(site / pick_file, canonical(found) + b"\n")
+    return book.append(signer, "pick", {
+        "rule": found["rule"], "market": found["market"], "sheet": {"seq": sheet_entry["seq"], "id": sheet["id"]},
+        "file": pick_file, "sha256": pick_sha, "rows": len(found["rows"]), "left_out": found["left_out"],
+    }, time=time)
 
 
 ANSWER_WORDS = {
@@ -219,6 +237,25 @@ def _shelf_section(entries) -> str:
             f"<table><tr><th>Shelf</th><th>Grade</th>{head}</tr>{rows}</table>\n")
 
 
+def _pick_section(entries) -> str:
+    newest: Dict[str, Dict[str, Any]] = {}
+    for x in entries_of("pick", entries):
+        newest[x["body"].get("market")] = x
+    if not newest:
+        return ""
+    e = html.escape
+    counts = ", ".join(f"{x['body']['rows']:,} {e(MARKET_WORDS.get(m, (m,))[0])} endpoints"
+                       for m, x in sorted(newest.items()))
+    files = " · ".join(f"<a href=\"{e(x['body']['file'])}\">{e(x['body']['sheet']['id'])}</a>"
+                       for _, x in sorted(newest.items()))
+    return (f"<h2>The fair pick</h2><p>For a job and a budget, the endpoints that fit, ranked by the published rule "
+            f"<code>{e(pick_lib.RULE)}</code>: those that asked what they list first, then those that promise to "
+            f"settle only on delivery, then the lower price. No seller can pay for a place. In the running this "
+            f"week: {counts}. The tables it ranks: {files}. Anyone gets the same order:</p>"
+            f"<pre>agoranome-inspector pick &lt;this site's URL&gt; \"weather forecast for a city\" --budget 0.01\n"
+            f"agoranome-inspector mcp      # the same as MCP tools, fair_pick and seller_row</pre>\n")
+
+
 def _pledge_section(entries) -> str:
     from agoranome_inspector import pledge as pledge_lib
 
@@ -266,7 +303,7 @@ def write_index(site: Path, book: Book) -> None:
                      f"{links_lib.PLATFORM_HOSTS} hosts share are a platform's and link nobody. A link is a fact "
                      f"beside the rows, never a verdict: <a href=\"{e(link_entries[-1]['body']['file'])}\">the "
                      f"links and their evidence</a>.</p>\n")
-    sections += _shelf_section(entries) + _pledge_section(entries)
+    sections += _pick_section(entries) + _shelf_section(entries) + _pledge_section(entries)
     rows = "".join(
         f"<tr><td>{e(sheet_lib.market_of(x['body']))}</td><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
         f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a></td>"
