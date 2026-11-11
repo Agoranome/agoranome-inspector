@@ -208,7 +208,7 @@ under {e(LICENCE)}. Every figure here is signed in the open book and can be chec
 {sections}<h2>Every sheet</h2>
 <table><tr><th>Market</th><th>Sheet</th><th>Rows</th><th>Files</th><th>Merkle root</th></tr>{rows}</table>
 <h2>Check it yourself</h2>
-<pre>pip install "git+https://github.com/shariar-k/agoranome1"
+<pre>pip install "git+https://github.com/shariar-k/agoranome-inspector"
 agoranome-inspector verify &lt;this site's URL&gt; --key={e(entries[0]['body']['key']['kid'])}</pre>
 <p>The book: <a href="book.jsonl">book.jsonl</a> ({len(entries):,} entries). Newest entry:
 <code>{e(str(entries[-1]['seq']))}:{e(entries[-1]['hash'])}</code>. Keep it, and check later that the book still holds
