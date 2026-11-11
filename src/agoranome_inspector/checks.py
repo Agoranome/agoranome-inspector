@@ -31,6 +31,9 @@ from typing import Any, Dict, List, Optional
 MAX_UNREACHABLE = 0.25
 MAX_ROWS_MOVE = 0.30
 MAX_PAYABLE_MOVE = 0.10
+# Answers that say nothing about whether the endpoint works: not reached, not public, or (MPP) wanting a request
+# the inspector could not form.
+NOT_ASKED = ("not_asked", "declined", "wants_input")
 
 
 def _share(summary: Dict[str, Any], answer: str, of: Optional[int] = None) -> float:
@@ -41,7 +44,7 @@ def _share(summary: Dict[str, Any], answer: str, of: Optional[int] = None) -> fl
 
 def _asked(summary: Dict[str, Any]) -> int:
     answers = summary.get("answer") or {}
-    return sum(n for k, n in answers.items() if k not in ("not_asked", "declined"))
+    return sum(n for k, n in answers.items() if k not in NOT_ASKED)
 
 
 def before_signing(sheet: Dict[str, Any], previous: Optional[Dict[str, Any]] = None) -> List[str]:

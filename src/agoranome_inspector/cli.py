@@ -201,6 +201,57 @@ def cmd_note(args) -> int:
     return 0
 
 
+def cmd_weekly_note(args) -> int:
+    from agoranome_inspector.assist import weekly_note
+
+    path = weekly_note(args.site)
+    print(f"weekly note: {path}" if path else "weekly note: none this week")
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    from agoranome_inspector.assist import doctor_issue, open_issue
+
+    log = Path(args.log).read_text(errors="replace") if args.log and Path(args.log).exists() else ""
+    url = open_issue(doctor_issue(log, args.run_url))
+    print(f"run doctor: {url or 'issue printed above'}")
+    return 0
+
+
+def cmd_red_team(args) -> int:
+    from agoranome_inspector.assist import open_issue, red_team, red_team_issue
+
+    signer = _key(args)      # without the signing key the findings could not be sealed, so nothing is asked
+    findings = red_team(args.repo)
+    if findings is None:
+        print("red-team: no answer this month (no key, the cap, or no usable answer)")
+        return 0
+    if not findings:
+        print("red-team: no findings")
+        return 0
+    url = open_issue(red_team_issue(findings, signer))
+    print(f"red-team: {len(findings)} findings, {url or 'issue printed above'}")
+    return 0
+
+
+def cmd_reveal(args) -> int:
+    from agoranome_inspector.assist import unseal
+
+    text = Path(args.file).read_text() if args.file else sys.stdin.read()
+    print(unseal(text, _key(args)))
+    return 0
+
+
+def cmd_spend(args) -> int:
+    from agoranome_inspector import models
+
+    ledger = models.Ledger(args.ledger or os.environ.get("INSPECTOR_SPEND_LEDGER") or "")
+    month = args.month
+    print(json.dumps({"month": month or "this month", "spent_usd": round(ledger.spent(month), 4),
+                      "cap_usd": models.cap()}))
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="agoranome-inspector", description="The public inspector of the x402 market.")
     p.add_argument("--version", action="version", version=__version__)
@@ -279,6 +330,30 @@ def parser() -> argparse.ArgumentParser:
     n.add_argument("text")
     n.add_argument("--key-file")
     n.set_defaults(func=cmd_note)
+
+    wn = sub.add_parser("weekly-note", help="a model's short note on the newest sheets, numbers checked (notes/)")
+    wn.add_argument("site")
+    wn.set_defaults(func=cmd_weekly_note)
+
+    d = sub.add_parser("doctor", help="open an issue on a held or failed weekly run, with a model's reading")
+    d.add_argument("--log", help="the run's log")
+    d.add_argument("--run-url")
+    d.set_defaults(func=cmd_doctor)
+
+    rt = sub.add_parser("red-team", help="a model reads this code for weaknesses; findings sealed in an issue")
+    rt.add_argument("--repo", default=".")
+    rt.add_argument("--key-file")
+    rt.set_defaults(func=cmd_red_team)
+
+    rv = sub.add_parser("reveal", help="read a sealed red-team report with the signing key")
+    rv.add_argument("file", nargs="?", help="the issue's text (default: standard input)")
+    rv.add_argument("--key-file")
+    rv.set_defaults(func=cmd_reveal)
+
+    sp = sub.add_parser("spend", help="the month's model spend against the cap")
+    sp.add_argument("--ledger")
+    sp.add_argument("--month", help="YYYY-MM (default: this month)")
+    sp.set_defaults(func=cmd_spend)
     return p
 
 

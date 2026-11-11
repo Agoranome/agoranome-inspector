@@ -4,6 +4,11 @@ name: Weekly sheet
 # paying, judge it under the published rule, sign the sheet and its change log into the open book, verify the
 # whole site, and publish it to the gh-pages branch, which GitHub Pages serves. It can also be started from the
 # Actions tab. It does nothing until the INSPECTOR_SIGNING_KEY secret is set (see scripts/weekly.sh).
+#
+# Models come only after that, and only with the ANTHROPIC_API_KEY secret: a short note on the week written from
+# the signed counts (notes/, outside the book), or, when the run is held or fails, an issue with a model's reading
+# of the log. Both are under the month's cap in src/agoranome_inspector/models.py, and neither can stop or change
+# a sheet: the measuring step never sees the model key.
 on:
   schedule:
     - cron: "17 6 * * 1"
@@ -16,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: weekly-sheet
@@ -25,15 +31,54 @@ jobs:
   sheet:
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    # One job at a time reads and adds to the model spend ledger.
+    concurrency:
+      group: model-spend
+      cancel-in-progress: false
+    env:
+      HAS_MODEL_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+      INSPECTOR_SPEND_LEDGER: spend/spend.jsonl
+      INSPECTOR_MODEL: ${{ vars.INSPECTOR_MODEL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install .
+      - run: pip install ".[models]"
       - name: Measure, sign, verify and publish
+        id: weekly
+        shell: bash      # with pipefail, so the tee keeps the run's exit code
         env:
           INSPECTOR_SIGNING_KEY: ${{ secrets.INSPECTOR_SIGNING_KEY }}
           INSPECTOR_FIRST_KID: ${{ vars.INSPECTOR_FIRST_KID }}
+          RUN_MARKETS: ${{ vars.RUN_MARKETS }}
           PUBLISH_ANYWAY: ${{ github.event.inputs.publish_anyway == 'true' && 'yes' || '' }}
-        run: bash scripts/weekly.sh
+        run: bash scripts/weekly.sh 2>&1 | tee "$RUNNER_TEMP/weekly.log"
+      - name: Read the model spend ledger
+        if: always() && env.HAS_MODEL_KEY == 'true'
+        continue-on-error: true
+        run: bash scripts/spend.sh pull
+      - name: Weekly note (a model, after publishing)
+        if: success() && env.HAS_MODEL_KEY == 'true' && hashFiles('site/book.jsonl') != ''
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          agoranome-inspector weekly-note site
+          cd site
+          git add notes
+          if ! git diff --cached --quiet; then
+            git commit -q -m "Weekly note $(date -u +%Y-%m-%d)"
+            git push origin gh-pages
+          fi
+      - name: Run doctor (an issue on a held or failed run)
+        if: failure() && steps.weekly.outcome == 'failure'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          agoranome-inspector doctor --log "$RUNNER_TEMP/weekly.log"
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Save the model spend ledger
+        if: always() && env.HAS_MODEL_KEY == 'true'
+        run: bash scripts/spend.sh push

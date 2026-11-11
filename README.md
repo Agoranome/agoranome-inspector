@@ -115,9 +115,18 @@ only to choose who is on the sheet, and they stay in the operator's private run 
 
 One row for each paid endpoint in the public MPP catalog (`https://mpp.dev/api/services`), except paths that need
 parameters filled in. The catalog states no demand, so the sheet claims none. Each endpoint is asked with the
-HTTP method the catalog lists (GET, or POST with an empty JSON body; other methods are not asked). An MPP endpoint
-answers 402 with one `WWW-Authenticate: Payment` challenge for each way it can be paid; its `request` names the
-amount, the currency and the recipient.
+HTTP method the catalog lists (GET or POST; other methods are not asked). An MPP endpoint answers 402 with one
+`WWW-Authenticate: Payment` challenge for each way it can be paid; its `request` names the amount, the currency
+and the recipient.
+
+Many MPP endpoints check the request before they quote a price, as one whose price depends on the request must:
+asked with an empty body, half of a trial's sample answered 400 naming a required field. So, as a buyer agent
+would, the inspector reads the service's own OpenAPI document (`/openapi.json` on the endpoint's host) and sends
+the example request it gives for that path and method: its example body and its required query parameters'
+examples, or values built from the schema's own examples, defaults and enums. The row says which was sent
+(`seen.request`: `seller_example` or `empty`); the example itself is sent, never published, and nothing is paid.
+An endpoint that still answers 400 or 422 is `wants_input`: it wanted a request the inspector could not form. That
+is not a failing, is not judged, and does not count as an unanswered ask in the check before signing.
 
 The rule `mpp-1` compares as `sheet-1` does, with the payment method in the place of the network, the currency in
 the place of the asset and the intent in the place of the scheme. The catalog names no recipient, so the recipient
@@ -209,8 +218,8 @@ It needs, once, in the repository's settings:
 3. **Pages**: source "Deploy from a branch", branch `gh-pages`, folder `/ (root)`. The branch exists after the first
    run. The site is then at `https://shariar-k.github.io/agoranome1/`.
 
-Each market in `RUN_MARKETS` (x402 by default) runs in turn into the same book; a market joins the list once its
-trial runs have been checked.
+Each market in the repository variable `RUN_MARKETS` (`x402` when it is not set; `x402 mpp` for both) runs in turn
+into the same book; a market joins the list once its trial runs have been checked.
 
 **The check before signing.** The verifier proves the book is consistent, not that a week's reading is sound, and
 the book only grows. So `run` holds a sheet unpublished, and the job fails so that GitHub tells the owner, when the
@@ -222,6 +231,36 @@ anyway"; the book then carries a note saying the sheet was published past the ch
 The private run file, with the index's payer and call counts, is written outside the site and is discarded with
 the runner. GitHub turns off a schedule in a public repository after 60 days without activity; if it ever does,
 turn it on again in the Actions tab.
+
+### Model uses, capped at $20 a month
+
+With the secret `ANTHROPIC_API_KEY` set, three jobs use a model (`claude-opus-5-5` unless the repository variable
+`INSPECTOR_MODEL` names another), each only after a sheet is published and never in its way:
+
+- **The weekly note.** After the weekly run has published, a model writes a short note on the week from the counts
+  in the signed book (no row, host, address or seller's text is shown to it). Code checks that every number in the
+  note is one of those counts, and drops the note if one is not. It is written to `notes/<sheet id>.md` on the
+  site, outside the book, and says it was written by a model.
+- **The run doctor.** When the weekly run is held by the check before signing or fails, the job opens an issue with
+  the held reasons and the end of the log, and a model's reading of them. Without a model the issue carries the
+  facts alone.
+- **The monthly red-team** (`.github/workflows/red-team.yml`, on the 2nd). A model reads this repository's code
+  for ways a seller, a network or a mistake could make a sheet wrong or the run unsafe. The findings are sealed
+  (AES-256-GCM, key derived from the signing key) before they go into a public issue, so an unfixed weakness is
+  not shown to everyone. Read them with
+  `gh issue view N --json body -q .body | agoranome-inspector reveal --key-file inspector-key.pem`.
+
+No model decides a verdict, sits in the publishing path, or reads sellers' words, and the measuring step never
+sees the model key. Every model call can fail and the sheet still publishes unchanged.
+
+**The cap is in code** (`src/agoranome_inspector/models.py`). Each call's worst case (its counted input and its
+`max_tokens`, at the highest prices any model that may serve it charges) is written to a spend ledger before the
+call, and a call that would take the month past $20 is not made; after the call, the reservation is replaced by
+the cost of the usage returned. The ledger is `spend.jsonl` on the branch `model-spend`, append-only, and the jobs
+that use it run one at a time. With no ledger, or a damaged one, no call is made. `agoranome-inspector spend
+--ledger spend.jsonl` shows the month's spend. As a second guard, set a $20 monthly spend limit on the API key's
+workspace in the Claude Console. Two more model uses (a buyer-model test and a one-off verdict-influence run) come
+with the fair pick in phase 2.
 
 ## Where the code came from
 

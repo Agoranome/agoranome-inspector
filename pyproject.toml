@@ -17,6 +17,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# The weekly note, the run doctor and the monthly red-team (see src/agoranome_inspector/models.py).
+models = ["anthropic>=2.8"]
 
 [project.scripts]
 agoranome-inspector = "agoranome_inspector.cli:main"
