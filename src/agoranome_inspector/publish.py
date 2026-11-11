@@ -134,7 +134,7 @@ table{{border-collapse:collapse;width:100%}}td,th{{text-align:left;padding:.3rem
 code{{font-size:.8em;word-break:break-all}}pre{{background:#f4f4f4;padding:.75rem;overflow-x:auto}}</style></head>
 <body>
 <h1>The x402 sheet</h1>
-<p>Every listing in the x402 Bazaar with 3 or more payers in 30 days, asked once without paying, and judged by a
+<p>Every listing in the x402 Bazaar with 3 or more payers in 30 days, asked without paying (twice when an answer differs from the listing) and judged by a
 published rule. Free, under {e(LICENCE)}. Every figure here is signed in the open book and can be checked with one command.</p>
 <h2>Sheet {e(newest['id'])}</h2>
 <p>{s.get("rows", 0):,} listings from {s.get("hosts", 0):,} sellers. What they answered:</p>
