@@ -1,7 +1,8 @@
-"""The open sheet's charts (Shariar 2026-11-11: "inspector sheet, should include insightful visualizations"): each
-drawn from the book's counts or from a sheet whose hash the book signs, none from a handful of offers, each with its
-figures in a table, and none able to stop the page."""
+"""The open sheet's charts (Shariar 2026-11-11: "inspector sheet, should include insightful visualizations", then
+"use softer colors" and "use more than bar chart"): each drawn from the book's counts or from a sheet whose hash the
+book signs, none from a handful of offers, each with its figures in a table, and none able to stop the page."""
 
+import html
 import re
 from decimal import Decimal
 
@@ -38,16 +39,21 @@ def test_the_answers_chart_names_each_part_and_keeps_its_figures():
                                                           unreadable_offer=5)},
     })
     assert "x402: 96% gave an offer an agent can pay; MPP: 42%." in out
-    # Each part is a block sized by its count, with its share inside only when it is a tenth or more.
-    assert 'style="flex-grow:960"' in out and "<b>96%</b>" in out and "<b>3%</b>" not in out
-    # A legend for the parts that are there, in the fixed order; the figures in a table.
-    legend = re.search(r'<ul class="chart-legend">(.*?)</ul>', out).group(1)
-    assert legend.index("Gave an offer") < legend.index("Wanted a valid request") < legend.index("Gone or refused")
+    # A ring per market: an arc per part there is, the payable share in the middle, each part named beside it.
+    assert out.count('class="ring"') == 2 and out.count('class="arc s1"') == 2 and out.count('class="arc s2"') == 1
+    assert '>96%</text><text class="ring-small"' in out and '>42%</text><text class="ring-small"' in out
+    x402 = re.search(r'<b>x402</b>.*?</ul>', out).group(0)
+    named = re.findall(r"<li><i class=\"s\d\"></i><span>(.*?)</span><b>(.*?)</b></li>", x402)
+    assert named == [("Gave an offer an agent can pay", "96%"), ("Gone or refused", "3%"),
+                     ("Failed, or gave no usable offer", "1%")]
+    # The arcs go round once: their lengths and the gaps between them add up to the whole circle.
+    dashes = [tuple(map(float, d.split())) for d in re.findall(r'stroke-dasharray="([\d. ]+)"', x402)]
+    assert {round(a + b, 1) for a, b in dashes} == {round(2 * 3.141592653589793 * 58, 1)}
     assert "<td>x402</td><td>Gone or refused</td><td>30</td><td>3%</td>" in out
 
 
 def test_shares_never_round_to_nothing_or_to_everything():
-    assert charts._pct(8, 5487, 0) == "under 1%" and charts._short("under 1%") == "<1%"
+    assert charts._pct(8, 5487, 0) == "under 1%"
     assert charts._pct(5486, 5487) == "over 99.9%" and charts._pct(10, 10, 0) == "100%"
     assert charts._pct(81, 521) == "15.5%" and charts._pct(0, 10) == "0%" and charts._pct(1, 0) == "0%"
 
@@ -67,12 +73,16 @@ def test_kinds_of_job_rank_by_their_share_that_doesnt_match(monkeypatch):
     assert [(c["category"], c["bad"], c["judged"]) for c in found] == [
         ("weather_geo", 40, 40), ("web_search", 30, 100), ("chain_data", 15, 100), ("news", 10, 100)]
     out = charts.categories_chart("x402", rows)
-    names = re.findall(r'<span class="bar-name">(.*?)</span>', out)
-    assert names == ["Web search", "Every kind together", "On-chain data", "News"]
-    assert "Weather" not in out and "<td>Every kind together</td><td>95</td><td>340</td><td>27.9%</td>" in out
+    # A dot per kind on one scale (30% at the right end), every judged offer together as the dashed line.
+    names = re.findall(r'<span class="dot-name">([^<]+)</span>', out)
+    assert names == ["Web search", "On-chain data", "News"]
+    assert 'class="pin s1" style="left:100.00%"' in out and 'class="pin s1" style="left:33.33%"' in out
+    assert 'style="--ref:93.14%"' in out and "all kinds 27.9%" in out
+    assert re.findall(r'<b style="left:[\d.]+%">([\d.]+%)</b>', out) == ["0%", "5%", "10%", "15%", "20%", "25%", "30%"]
+    assert "Weather" not in out.split("<details")[0]
+    assert "<td>Every kind together</td><td>95</td><td>340</td><td>27.9%</td>" in out
     assert "Web search offers differ from their listing most often (30%), news least (10%); across every kind, " \
            "27.9%." in out
-    assert 'class="bar s0"' in out and 'class="bar-row bar-all"' in out
     # Fewer than three kinds with enough judged offers: no ranking.
     assert charts.categories_chart("x402", rows[:200]) == ""
 
@@ -108,8 +118,14 @@ def test_the_markup_chart_needs_a_hundred_offers_and_says_the_middle():
     assert charts.markup_chart("x402", rows[:99]) == ""
     out = charts.markup_chart("x402", rows)
     assert "Of 100 offers that asked more than their listing, half asked no more than 1.2×" in out
-    assert "20 asked at least twice as much and 1 at least ten times, up to 400×." in out
-    assert "<td>1.1 to 1.5×</td><td>80</td><td>80%</td>" in out
+    assert "20 asked at least twice as much and 1 at least ten times." in out
+    # Four figures, then a square per offer, shaded by band in order.
+    tiles = re.findall(r'<div class="tile"><b>(.*?)</b><span>(.*?)</span></div>', out)
+    assert [t[0] for t in tiles] == ["100", "1.2×", "20", "1"] and tiles[3][1].endswith("up to 400×")
+    squares = re.findall(r'<i class="r(\d)" data-v="(.*?)"', re.search(r'<div class="waffle".*?</div>', out).group(0))
+    assert len(squares) == 100 and [int(k) for k, _ in squares] == sorted(int(k) for k, _ in squares)
+    assert squares.count(("2", "1.1 to 1.5×")) == 80 and squares.count(("5", "10× or more")) == 1
+    assert "Each square is one offer." in out and "<td>1.1 to 1.5×</td><td>80</td><td>80%</td>" in out
 
 
 def test_prices_are_the_fair_picks_and_need_enough_offers(monkeypatch):
@@ -119,14 +135,41 @@ def test_prices_are_the_fair_picks_and_need_enough_offers(monkeypatch):
     assert charts.prices_chart({"x402": sheet}) == ""
     monkeypatch.setattr(charts, "MIN_GROUP", 4)
     out = charts.prices_chart({"x402": sheet})
-    assert "What one call costs on x402" in out and "the median of the offers: x402 $0.005." in out
-    assert "<td>x402</td><td>$0.001 to $0.01</td><td>3</td><td>75%</td>" in out
-    # One market: a count on each cap and no legend; the chart's title names the market instead.
-    assert 'class="chart-legend"' not in out and '<span class="col-val">3</span>' in out
+    assert "What one call costs on x402" in out
+    assert "Half of x402's payable offers cost at most $0.005 a call." in html.unescape(out)
+    assert "<td>x402</td><td>$0.001 to $0.01</td><td>3</td><td>75%</td><td>75%</td>" in out
+    # One market: a curve with its middle price named, and no legend; the chart's title names the market instead.
+    assert 'class="line s1"' in out and ">x402 $0.005</text>" in out and 'class="chart-legend"' not in out
+    assert "half cost at most $0.005" in out and "Past the right edge" not in out
+
+
+def test_the_price_curves_climb_to_every_offer_and_say_what_is_past_the_edge(monkeypatch):
+    monkeypatch.setattr(charts, "MIN_GROUP", 2)
+    monkeypatch.setattr(charts, "prices", lambda market, rows: [Decimal(v) for v in rows])
+    out = charts.prices_chart({"x402": {"rows": ["0.001", "0.01", "0.01", "50"]},
+                               "mpp": {"rows": ["0.00001", "0.02"]}})
+    text = html.unescape(out)
+    assert "Half of x402's payable offers cost at most $0.01 a call; half of MPP's, at most $0.010005." in text
+    assert "Past the right edge, over $10: 1 of x402's." in text and 'class="chart-legend"' in out
+    # Each curve is a staircase from 0% at the left edge; x402's last offer, past $10, climbs at the right edge.
+    x402, mpp = re.findall(r'<path class="line s\d" d="(.*?)"/>', out)
+    assert x402 == "M46,234.0H160.8V179.5H275.6V70.5H620.0V16.0H620"
+    assert mpp.startswith("M46,234.0H46.0V125.0")
 
 
 def summary(bad, good):
     return {"matches_listing": {"false": bad, "true": good, "null": 7}, "answer": {"payable": bad + good}}
+
+
+def test_many_offers_share_a_square(monkeypatch):
+    monkeypatch.setattr(charts, "WAFFLE_MAX", 40)
+    rows = [row("news", False, price="above_listed", differs=[above("12000", "10000")])] * 99 + [
+        row("news", False, price="above_listed", differs=[above("4000000", "10000")])]
+    out = charts.markup_chart("x402", rows)
+    assert "Each square is about 3 offers." in out and "one square for every 3" in out
+    # A band with any offer keeps at least one square.
+    waffle = re.search(r'<div class="waffle".*?</div>', out).group(0)
+    assert len(re.findall(r'<i class="r2"', waffle)) == 33 and len(re.findall(r'<i class="r5"', waffle)) == 1
 
 
 def test_the_trend_waits_for_a_second_sheet_and_then_follows_each_market():

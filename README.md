@@ -382,12 +382,13 @@ names its market and day (`x402-2026-11-16`). Each change log
 compares a sheet with the sheet just before it in the same market, and the verifier checks that it does. With no
 `--id`, `verify` checks the newest sheet of each market.
 
-`index.html` opens with "The market at a glance" (`charts.py`): what each market's endpoints answered, what one call
-costs, how often an offer differs from its listing (by kind of job, and week by week once a market has two sheets),
-and how much more an offer asks when it asks more than its listing. Each chart is counted from the book's entries or
-from the newest sheets, read only after their hashes match the book; each needs at least 100 offers behind it, and
-each keeps its figures in a table beside it. The page draws them with plain HTML, CSS and an inline script, and
-fetches nothing from another origin.
+`index.html` opens with "The market at a glance" (`charts.py`): a ring per market for what its endpoints answered,
+price curves for what one call costs, a dot plot of how often an offer differs from its listing by kind of job (and a
+line per market, week by week, once a market has two sheets), and four figures with a square per offer for how much
+more an offer asks when it asks more than its listing. Each chart is counted from the book's entries or from the
+newest sheets, read only after their hashes match the book; each needs at least 100 offers behind it, and each keeps
+its figures in a table under it. The page draws them with SVG, plain HTML, CSS and an inline script, in soft tones
+checked so every pair of colors stays apart, and fetches nothing from another origin.
 
 ## Running the inspector
 

@@ -155,55 +155,75 @@ pre { background: var(--surface-solid); border: 1px solid var(--border); border-
 .footer-base { border-top: 1px solid var(--border); padding: 18px 0 28px; }
 .footer-base p { margin: 0; color: var(--muted); font-size: 0.82rem; }
 
-/* Charts (charts.py). Series colors are the data-viz method's dark categorical slots, checked on --surface-solid;
-   s0 is the grey of a context bar. Text keeps the ink colors; a mark's color only says which series it is. */
+/* Charts (charts.py). Soft series tones for the site's baby blue, checked on --surface-solid so every pair stays
+   apart, colour-blind simulations included; s0 is a context grey, r1 to r5 one peach hue from dim to bright. Text
+   keeps the ink colors; a mark's color only says which series it is. The ramp is muted where an offer asks a
+   little more and bright where it asks ten times or more. */
 .chart { margin: 18px 0 26px; padding: 20px 22px; background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
 .chart figcaption { margin-bottom: 14px; }
 .chart-title { display: block; color: var(--ink); font-weight: 650; font-size: 1.04rem; letter-spacing: -0.01em; }
 .chart-sub { display: block; color: var(--ink-2); font-size: 0.93rem; margin-top: 4px; }
 .chart-note { color: var(--muted); font-size: 0.84rem; margin: 12px 0 0; }
-.s0 { --c: #5f7488; } .s1 { --c: #3987e5; } .s2 { --c: #d95926; } .s3 { --c: #199e70; } .s4 { --c: #c98500; }
-.s5 { --c: #d55181; }
+.s0 { --c: #7d8e9e; } .s1 { --c: #9ecaef; } .s2 { --c: #fcb17e; } .s3 { --c: #2eab98; } .s4 { --c: #a97e2c; }
+.s5 { --c: #8e7ab5; }
+.r1 { --c: #6b594e; } .r2 { --c: #907461; } .r3 { --c: #b88e72; } .r4 { --c: #e5a880; } .r5 { --c: #ffbe8a; }
 .chart [data-v] { cursor: default; }
-.chart [data-v]:hover { filter: brightness(1.18); }
-.seg-row { display: grid; grid-template-columns: 8.5em 1fr; gap: 14px; align-items: center; margin: 10px 0; }
-.seg-name { color: var(--ink); font-weight: 600; line-height: 1.25; }
-.seg-name span { display: block; color: var(--muted); font-weight: 400; font-size: 0.8rem; }
-.seg { display: flex; gap: 2px; height: 28px; }
-.seg-part { flex: 0 1 0; min-width: 3px; display: flex; align-items: center; justify-content: center;
-  background: var(--c); overflow: hidden; }
-.seg-part:first-child { border-radius: 4px 0 0 4px; }
-.seg-part:last-child { border-radius: 0 4px 4px 0; }
-.seg-part:only-child { border-radius: 4px; }
-.seg-part b { color: #fff; font-size: 0.8rem; font-weight: 650; }
+.chart [data-v]:hover { filter: brightness(1.12); }
 .chart-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0; margin: 14px 0 0; }
 .chart-legend li { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.86rem; }
-.chart-legend li::marker { content: ""; }
-.chart-legend i { width: 12px; height: 12px; border-radius: 3px; background: var(--c); flex: none; }
-.bars { display: grid; gap: 6px; }
-.bar-row { display: grid; grid-template-columns: minmax(10em, 14.5em) 1fr; gap: 12px; align-items: center; }
-.bar-name { color: var(--ink-2); font-size: 0.88rem; line-height: 1.25; }
-.bar-all .bar-name, .bar-all .bar-val { color: var(--ink); font-weight: 600; }
-.bar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.bar { height: 18px; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--c); flex: none; }
-.bar-val { color: var(--ink-2); font-size: 0.84rem; white-space: nowrap; }
-.cols { display: flex; gap: 10px; }
-.col-group { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
-.col-bars { height: 190px; display: flex; justify-content: center; gap: 2px;
-  border-bottom: 1px solid var(--border-strong); }
-.col { flex: 0 1 44px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
-  min-width: 0; }
-.col-val { color: var(--ink-2); font-size: 0.78rem; margin-bottom: 4px; white-space: nowrap; }
-.col-bar { width: 100%; border-radius: 4px 4px 0 0; background: var(--c); }
-.col-name { margin-top: 8px; text-align: center; color: var(--muted); font-size: 0.8rem; line-height: 1.3; }
+.chart-legend li::marker, .ring-parts li::marker { content: ""; }
+.chart-legend i, .ring-parts i { width: 12px; height: 12px; border-radius: 3px; background: var(--c); flex: none; }
 .chart-scroll { overflow-x: auto; }
 .chart-svg { display: block; width: 100%; min-width: 480px; height: auto; font-family: var(--sans); }
 .chart-svg .grid { stroke: var(--border); stroke-width: 1; }
 .chart-svg .tick { fill: var(--muted); font-size: 11px; }
-.chart-svg .end { fill: var(--ink-2); font-size: 12px; }
-.chart-svg .line { fill: none; stroke: var(--c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-svg .end { fill: var(--ink); font-size: 12px; font-weight: 600; }
+.chart-svg .ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.chart-svg .ref-label { fill: var(--muted); font-size: 11px; }
+.chart-svg .line { fill: none; stroke: var(--c); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .chart-svg .dot { fill: var(--c); stroke: var(--surface-solid); stroke-width: 2; }
+/* Rings: a market per card, its parts named beside it. */
+.rings { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 22px 36px; }
+.ring-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.ring-head b { color: var(--ink); font-size: 1rem; }
+.ring-head span { color: var(--muted); font-size: 0.82rem; }
+.ring-body { display: flex; align-items: center; gap: 18px; }
+.ring-svg { width: 136px; height: 136px; flex: none; font-family: var(--sans); }
+.ring-svg .arc { fill: none; stroke: var(--c); stroke-width: 20; }
+.ring-svg .ring-big { fill: var(--ink); font-size: 26px; font-weight: 720; letter-spacing: -0.02em; }
+.ring-svg .ring-small { fill: var(--muted); font-size: 11px; }
+.ring-parts { list-style: none; padding: 0; margin: 0; display: grid; gap: 5px; flex: 1; min-width: 0; }
+.ring-parts li { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; margin: 0;
+  font-size: 0.85rem; line-height: 1.3; }
+.ring-parts b { color: var(--ink); font-weight: 600; }
+/* Dot plot: a dot per kind of job on one scale, the whole as a dashed line. */
+.dots { --ref: 0%; }
+.dot-row { display: grid; grid-template-columns: minmax(10em, 14.5em) 1fr; gap: 12px; align-items: center; }
+.dot-name { color: var(--ink-2); font-size: 0.88rem; line-height: 1.25; padding: 4px 0; }
+.dot-track { position: relative; height: 30px; margin-right: 3.6em; }
+.dot-track::before { content: ""; position: absolute; top: 0; bottom: 0; left: var(--ref);
+  border-left: 1px dashed var(--muted); }
+.stem { position: absolute; left: 0; top: 50%; height: 2px; margin-top: -1px; background: var(--border-strong);
+  border-radius: 2px; }
+.pin { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+  background: var(--c); box-shadow: 0 0 0 2px var(--surface-solid); }
+.dot-val { position: absolute; top: 50%; transform: translate(14px, -50%); color: var(--ink); font-size: 0.82rem;
+  white-space: nowrap; }
+.dot-axis .dot-track { height: 34px; border-top: 1px solid var(--border-strong); }
+.dot-axis .dot-track::before { bottom: auto; height: 6px; }
+.dot-axis b { position: absolute; top: 6px; transform: translateX(-50%); color: var(--muted); font-size: 0.74rem;
+  font-weight: 400; }
+.dot-axis em { position: absolute; top: 20px; transform: translateX(-50%); color: var(--ink-2); font-size: 0.74rem;
+  font-style: normal; white-space: nowrap; }
+/* Figures and squares: the markup chart. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.tile { background: var(--wash); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+.tile b { display: block; color: var(--ink); font-size: 1.5rem; font-weight: 720; letter-spacing: -0.02em;
+  line-height: 1.1; }
+.tile span { display: block; color: var(--ink-2); font-size: 0.82rem; margin-top: 4px; line-height: 1.3; }
+.waffle { display: grid; grid-template-columns: repeat(46, minmax(0, 1fr)); gap: 3px; }
+.waffle i { aspect-ratio: 1; border-radius: 3px; background: var(--c); }
 .chart-table { margin-top: 12px; }
 .chart-table summary { color: var(--baby); cursor: pointer; font-size: 0.86rem; width: max-content; }
 .chart-table table { margin-bottom: 0; }
@@ -221,10 +241,12 @@ pre { background: var(--surface-solid); border: 1px solid var(--border); border-
   .brand span { display: none; }
   .doc { padding-top: 48px; }
   .chart { padding: 16px 14px; }
-  .seg-row, .bar-row { grid-template-columns: 1fr; gap: 4px; }
-  .bars { gap: 10px; }
-  .cols { gap: 4px; }
-  .col-name { font-size: 0.72rem; }
+  .rings { grid-template-columns: 1fr; }
+  .ring-svg { width: 112px; height: 112px; }
+  .dot-row { grid-template-columns: 1fr; gap: 0; }
+  .dot-name { padding: 6px 0 0; }
+  .dot-axis .dot-name { display: none; }
+  .waffle { grid-template-columns: repeat(23, minmax(0, 1fr)); gap: 2px; }
 }
 """
 
