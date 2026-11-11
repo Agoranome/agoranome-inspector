@@ -188,7 +188,7 @@ def parser() -> argparse.ArgumentParser:
 
     v = sub.add_parser("verify", help="check a published sheet against the open book")
     v.add_argument("site", help="the site's URL or a local directory")
-    v.add_argument("--id", help="the sheet to check (default: the newest)")
+    v.add_argument("--id", help="the sheet to check (default: the newest of each market)")
     v.add_argument("--all", action="store_true", help="check every sheet in the book")
     v.add_argument("--key", help="the first signing key's kid, as published elsewhere")
     v.add_argument("--since", help="an entry you kept earlier, as SEQ:HASH, that must still be in the book")
@@ -212,7 +212,7 @@ def parser() -> argparse.ArgumentParser:
     k.set_defaults(func=cmd_keygen)
 
     def measuring(sp):
-        sp.add_argument("--id", help="the run's id (default: today's UTC date)")
+        sp.add_argument("--id", help="the sheet's id (default: x402- and today's UTC date)")
         sp.add_argument("--concurrency", type=int, default=16)
         sp.add_argument("--per-host", type=int, default=100)
         sp.add_argument("--budget", type=float, default=3 * 3600, help="seconds for the whole run")

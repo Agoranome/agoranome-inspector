@@ -70,6 +70,7 @@ def publish(site_dir: str, sheet: Dict[str, Any], signer: Signer, time: Optional
     if not book.entries():
         book.open(signer, time=time)
     sheets = entries_of("sheet", book.entries())
+    market = sheet_lib.market_of(sheet)
     if any(e["body"]["id"] == sheet["id"] for e in sheets):
         raise RuntimeError(f"sheet {sheet['id']} is already in the book; publish a correction under a new id")
     sheet_file = f"sheets/{sheet['id']}.json"
@@ -78,6 +79,7 @@ def publish(site_dir: str, sheet: Dict[str, Any], signer: Signer, time: Optional
     csv_sha = _write(site / csv_file, sheet_lib.to_csv(sheet).encode("utf-8"))
     entry = book.append(signer, "sheet", {
         "id": sheet["id"],
+        "market": market,
         "rule": sheet["rule"],
         "file": sheet_file,
         "sha256": sheet_sha,
@@ -87,13 +89,14 @@ def publish(site_dir: str, sheet: Dict[str, Any], signer: Signer, time: Optional
         "csv": {"file": csv_file, "sha256": csv_sha},
     }, time=time)
     out = {"sheet": entry}
-    if sheets:
-        before = load_sheet(site, sheets[-1])
+    same_market = [e for e in sheets if sheet_lib.market_of(e["body"]) == market]
+    if same_market:
+        before = load_sheet(site, same_market[-1])
         log = changes_lib.diff(before, sheet)
         log_file = f"changes/{sheet['id']}.json"
         log_sha = _write(site / log_file, canonical(log) + b"\n")
         out["changes"] = book.append(signer, "changes", {
-            "from": log["from"], "to": log["to"], "file": log_file, "sha256": log_sha, "counts": log["counts"],
+            "market": market, "from": log["from"], "to": log["to"], "file": log_file, "sha256": log_sha, "counts": log["counts"],
         }, time=time)
     out["head"] = write_head(site, book)
     write_index(site, book)
@@ -108,44 +111,59 @@ ANSWER_WORDS = {
 }
 
 
-def write_index(site: Path, book: Book) -> None:
-    """The page a person lands on. Every figure on it is in the newest sheet's book entry."""
-    entries = book.entries()
-    sheets = entries_of("sheet", entries)
-    if not sheets:
-        return
-    newest = sheets[-1]["body"]
-    s = newest["summary"]
+MARKET_WORDS = {
+    "x402": ("x402", "Every listing in Coinbase's x402 Bazaar with 3 or more payers in 30 days"),
+}
+
+
+def _market_section(body: Dict[str, Any]) -> str:
     e = html.escape
+    s = body["summary"]
+    name, who = MARKET_WORDS.get(sheet_lib.market_of(body), (sheet_lib.market_of(body), "Every listing"))
     answers = "".join(f"<li>{n:,} {e(ANSWER_WORDS.get(k, k))}</li>" for k, n in sorted(
         s.get("answer", {}).items(), key=lambda kv: -kv[1]))
     payable = s.get("answer", {}).get("payable", 0)
     price = s.get("price", {})
     pay_to = s.get("pay_to", {})
-    rows = "".join(
-        f"<tr><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
-        f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a></td>"
-        f"<td><code>{e(x['body']['root'] or '')}</code></td></tr>" for x in reversed(sheets))
-    page = f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agoranome: the x402 sheet</title>
-<style>body{{font:16px/1.5 system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}}
-table{{border-collapse:collapse;width:100%}}td,th{{text-align:left;padding:.3rem .5rem;border-bottom:1px solid #ddd}}
-code{{font-size:.8em;word-break:break-all}}pre{{background:#f4f4f4;padding:.75rem;overflow-x:auto}}</style></head>
-<body>
-<h1>The x402 sheet</h1>
-<p>Every listing in the x402 Bazaar with 3 or more payers in 30 days, asked without paying (twice when an answer differs from the listing) and judged by a
-published rule. Free, under {e(LICENCE)}. Every figure here is signed in the open book and can be checked with one command.</p>
-<h2>Sheet {e(newest['id'])}</h2>
-<p>{s.get("rows", 0):,} listings from {s.get("hosts", 0):,} sellers. What they answered:</p>
+    return f"""<h2>{e(name)}: sheet {e(body['id'])}</h2>
+<p>{e(who)}, asked without paying (twice when an answer differs from the listing) and judged by the published rule
+<code>{e(body['rule'])}</code>. {s.get("rows", 0):,} listings from {s.get("hosts", 0):,} sellers. What they answered:</p>
 <ul>{answers}</ul>
 <p>Of the {payable:,} payable offers, {price.get('as_listed', 0) + price.get('below_listed', 0):,} asked no more than
 their listed price and {price.get('above_listed', 0):,} asked more; {pay_to.get('different', 0):,} named a pay-to
 address other than the listed one; {price.get('varies', 0) + pay_to.get('varies', 0):,} verdicts varied between two
 asks and are not held against anyone. A difference from the listing can mean the listing is out of date.
 {s.get('fair_offer', 0):,} carried a Fair Offer block.</p>
-<h2>Every sheet</h2>
-<table><tr><th>Sheet</th><th>Rows</th><th>Files</th><th>Merkle root</th></tr>{rows}</table>
+"""
+
+
+def write_index(site: Path, book: Book) -> None:
+    """The page a person lands on. Every figure on it is in a sheet's book entry."""
+    entries = book.entries()
+    sheets = entries_of("sheet", entries)
+    if not sheets:
+        return
+    e = html.escape
+    newest: Dict[str, Dict[str, Any]] = {}
+    for x in sheets:
+        newest[sheet_lib.market_of(x["body"])] = x
+    sections = "".join(_market_section(x["body"]) for x in sorted(newest.values(), key=lambda x: -x["seq"]))
+    rows = "".join(
+        f"<tr><td>{e(sheet_lib.market_of(x['body']))}</td><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
+        f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a></td>"
+        f"<td><code>{e(x['body']['root'] or '')}</code></td></tr>" for x in reversed(sheets))
+    page = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agoranome: the open sheet of machine payment offers</title>
+<style>body{{font:16px/1.5 system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}}
+table{{border-collapse:collapse;width:100%}}td,th{{text-align:left;padding:.3rem .5rem;border-bottom:1px solid #ddd}}
+code{{font-size:.8em;word-break:break-all}}pre{{background:#f4f4f4;padding:.75rem;overflow-x:auto}}</style></head>
+<body>
+<h1>The open sheet</h1>
+<p>Paid endpoints that machines buy from, asked for their offer without paying and judged by a published rule. Free,
+under {e(LICENCE)}. Every figure here is signed in the open book and can be checked with one command.</p>
+{sections}<h2>Every sheet</h2>
+<table><tr><th>Market</th><th>Sheet</th><th>Rows</th><th>Files</th><th>Merkle root</th></tr>{rows}</table>
 <h2>Check it yourself</h2>
 <pre>pip install "git+https://github.com/shariar-k/agoranome1"
 agoranome-inspector verify &lt;this site's URL&gt; --key={e(entries[0]['body']['key']['kid'])}</pre>

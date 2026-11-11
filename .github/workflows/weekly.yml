@@ -1,0 +1,33 @@
+name: Weekly sheet
+
+# Every Monday: read Coinbase's x402 Bazaar index, ask every listing with real demand for its offer without
+# paying, judge it under the published rule, sign the sheet and its change log into the open book, verify the
+# whole site, and publish it to the gh-pages branch, which GitHub Pages serves. It can also be started from the
+# Actions tab. It does nothing until the INSPECTOR_SIGNING_KEY secret is set (see scripts/weekly.sh).
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-sheet
+  cancel-in-progress: false
+
+jobs:
+  sheet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - name: Measure, sign, verify and publish
+        env:
+          INSPECTOR_SIGNING_KEY: ${{ secrets.INSPECTOR_SIGNING_KEY }}
+          INSPECTOR_FIRST_KID: ${{ vars.INSPECTOR_FIRST_KID }}
+        run: bash scripts/weekly.sh

@@ -21,7 +21,7 @@ from fakes import OTHER, honest, standard_market  # noqa: E402
 
 def week(market, run_id):
     found = run(run_id, reader=market.reader(), fetcher=market.fetcher(),
-                settings=Settings(concurrency=1, host_pause=0, retry_pause=0, confirm_pause=0), clock=lambda: f"{run_id}T06:00:00Z")
+                settings=Settings(concurrency=1, host_pause=0, retry_pause=0, confirm_pause=0), clock=lambda: f"{run_id[-10:]}T06:00:00Z")
     found["index"]["url"] = "https://index.example/discovery/resources (a fake index)"
     return sheet_lib.build(found["id"], found["listings"], found["seen"], index=found["index"], probe=found["probe"])
 
@@ -31,13 +31,13 @@ def main() -> None:
     shutil.rmtree(site, ignore_errors=True)
     signer = Signer.generate()   # thrown away: the demo book can never be extended
     market = standard_market()
-    publish(str(site), week(market, "2026-11-16"), signer, time="2026-11-16T07:00:00Z")
+    publish(str(site), week(market, "x402-2026-11-16"), signer, time="2026-11-16T07:00:00Z")
     note(str(site), signer, "A demo book over a fake market. No host in it is a real seller.",
          time="2026-11-16T07:01:00Z")
     market.sellers["pricey.example"] = honest("5000")
     market.sellers["swap.example"] = honest("5000", OTHER.replace("2", "3"))
     market.sellers["gone.example"] = honest("1000")
-    publish(str(site), week(market, "2026-11-23"), signer, time="2026-11-23T07:00:00Z")
+    publish(str(site), week(market, "x402-2026-11-23"), signer, time="2026-11-23T07:00:00Z")
     print(f"demo site written to {site.relative_to(ROOT)}; first key {signer.kid}")
 
 

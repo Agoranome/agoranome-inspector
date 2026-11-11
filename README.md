@@ -10,6 +10,9 @@ they pay for, and we pledge 15% of what we earn to a public cause.
 This is phase 1 of the plan, "Prove": the sheet, the change log, the open book and its verifier. Nothing here is
 sold. The tools are free, and the published sheets are under CC BY 4.0.
 
+One book holds the sheets of several markets. x402 is the first. MPP (the Machine Payments Protocol) and Skyfire
+are next: each will get its own sheet and rule beside x402's, in the same book.
+
 ## Check a sheet in one command
 
 ```sh
@@ -134,7 +137,9 @@ book. From then on a receipt's proof from the lab must fold into the root the bo
 ## The published site
 
 Plain files that any static host can serve: `book.jsonl`, `head.json`, `sheets/<id>.json`, `sheets/<id>.csv`,
-`changes/<id>.json` and `index.html`.
+`changes/<id>.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
+compares a sheet with the sheet just before it in the same market, and the verifier checks that it does. With no
+`--id`, `verify` checks the newest sheet of each market.
 
 ## Running the inspector
 
@@ -147,7 +152,28 @@ agoranome-inspector anchor-lab site/                      # optional: join the l
 
 `run` is polite by default: one request at a time to any host, half a second between a host's listings, at most
 100 listings of one host (busiest first), 16 hosts at once and a three-hour budget. It needs no model and no paid
-service. Where it runs on a schedule is not decided yet.
+service.
+
+### The weekly run
+
+The workflow `Weekly sheet` (`.github/workflows/weekly.yml`, running `scripts/weekly.sh`) runs every Monday at
+06:17 UTC and can be started by hand from the Actions tab. It takes the published site from the `gh-pages` branch,
+runs the inspector into it, verifies the whole site with the one command, and only then commits it back to
+`gh-pages`, which GitHub Pages serves. The git history of `gh-pages` is a second record of every week.
+
+It needs, once, in the repository's settings:
+
+1. **Secrets and variables, Actions, secret `INSPECTOR_SIGNING_KEY`**: the PEM text of the book's signing key, made
+   with `agoranome-inspector keygen --out inspector-key.pem`. Keep the file somewhere safe and offline. Until the
+   secret is set, the workflow measures and publishes nothing.
+2. **Secrets and variables, Actions, variable `INSPECTOR_FIRST_KID`** (optional): the kid `keygen` printed. The run
+   then refuses to publish a book whose first key is any other.
+3. **Pages**: source "Deploy from a branch", branch `gh-pages`, folder `/ (root)`. The branch exists after the first
+   run. The site is then at `https://shariar-k.github.io/agoranome1/`.
+
+The private run file, with the index's payer and call counts, is written outside the site and is discarded with
+the runner. GitHub turns off a schedule in a public repository after 60 days without activity; if it ever does,
+turn it on again in the Actions tab.
 
 ## Where the code came from
 

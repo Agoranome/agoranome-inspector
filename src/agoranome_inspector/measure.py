@@ -106,7 +106,7 @@ def run(run_id: Optional[str] = None, *, reader: Optional[IndexReader] = None,
     ended = clock()
     return {
         "kind": RUN_KIND,
-        "id": run_id or started[:10],
+        "id": run_id or f"x402-{started[:10]}",
         "index": {"url": index["url"], "read_at": read_at, "total_reported": index["total_reported"],
                   "complete": index["complete"], "digest": index["digest"], "listings": len(index["listings"])},
         "probe": {"started": started, "ended": ended, "user_agent": fetcher.user_agent,

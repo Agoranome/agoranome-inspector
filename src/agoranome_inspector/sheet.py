@@ -31,6 +31,7 @@ from agoranome_inspector.merkle import leaf_hash, merkle_root
 from agoranome_inspector.rule import METHOD, RULE, RULES
 
 KIND = "agoranome.x402-sheet"
+MARKET = "x402"
 FORMAT = 1
 LICENCE = "CC BY 4.0"
 
@@ -73,6 +74,11 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def market_of(sheet_or_body: Dict[str, Any]) -> str:
+    """The market a sheet (or its book entry's body) covers; sheets written before markets were named are x402."""
+    return sheet_or_body.get("market") or MARKET
+
+
 def leaves(sheet: Dict[str, Any]) -> List[str]:
     return [leaf_hash(r) for r in sheet["rows"]]
 
@@ -83,7 +89,7 @@ def root(sheet: Dict[str, Any]) -> Optional[str]:
 
 def build(sheet_id: str, listings: List[Dict[str, Any]], seen: Dict[str, Optional[Dict[str, Any]]], *,
           index: Dict[str, Any], probe: Dict[str, Any], publish_index_counts: bool = False,
-          min_payers: int = REAL_DEMAND_PAYERS) -> Dict[str, Any]:
+          min_payers: int = REAL_DEMAND_PAYERS, market: str = MARKET) -> Dict[str, Any]:
     """A sheet from the selected listings and what each answered (`seen`, keyed by resource; a listing missing
     from it was not asked in this run)."""
     rows = sorted((row(x, seen.get(x["resource"]), publish_index_counts=publish_index_counts) for x in listings),
@@ -91,6 +97,7 @@ def build(sheet_id: str, listings: List[Dict[str, Any]], seen: Dict[str, Optiona
     return {
         "kind": KIND,
         "format": FORMAT,
+        "market": market,
         "id": sheet_id,
         "rule": RULE,
         "method": METHOD,

@@ -84,6 +84,7 @@ def diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "kind": KIND,
         "format": FORMAT,
+        "market": after.get("market") or "x402",
         "from": before["id"],
         "to": after["id"],
         "changes": found,

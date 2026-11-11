@@ -97,6 +97,14 @@ class Report:
         return out
 
 
+def newest_by_market(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The newest sheet entry of each market, in book order."""
+    newest: Dict[str, Dict[str, Any]] = {}
+    for e in entries_of("sheet", entries):
+        newest[sheet_lib.market_of(e["body"])] = e
+    return sorted(newest.values(), key=lambda e: e["seq"])
+
+
 def _sheet_entry(entries: List[Dict[str, Any]], sheet_id: Optional[str]) -> Optional[Dict[str, Any]]:
     sheets = entries_of("sheet", entries)
     if sheet_id is None:
@@ -129,7 +137,8 @@ def check_sheet(read: Callable[[str], bytes], entries: List[Dict[str, Any]], ent
         return None
     rule = sheet.get("rule")
     if not report.add(f"{label} rule", sheet.get("id") == body.get("id") and rule == body.get("rule")
-                      and rule in RULES, f"judged under {rule}"
+                      and sheet_lib.market_of(sheet) == sheet_lib.market_of(body)
+                      and rule in RULES, f"{sheet_lib.market_of(sheet)} sheet judged under {rule}"
                       + ("" if rule in RULES else " (a rule this verifier does not know: update it)")):
         return None
     rows = sheet.get("rows") or []
@@ -167,6 +176,13 @@ def check_changes(read: Callable[[str], bytes], entries: List[Dict[str, Any]], l
     before_entry = _sheet_entry(entries, body.get("from"))
     if before_entry is None:
         report.add(label, False, f"the book holds no sheet {body.get('from')}")
+        return
+    market = sheet_lib.market_of(sheet)
+    after_entry = _sheet_entry(entries, body.get("to"))
+    earlier = [e for e in entries_of("sheet", entries)
+               if sheet_lib.market_of(e["body"]) == market and after_entry and e["seq"] < after_entry["seq"]]
+    if not earlier or earlier[-1]["seq"] != before_entry["seq"]:
+        report.add(label, False, f"{body.get('from')} is not the {market} sheet just before {body.get('to')}")
         return
     quiet = Report()
     before = _load_sheet(read, before_entry, quiet)
@@ -219,7 +235,8 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
                        + f"; head {chain.head['seq']}:{chain.head['hash']}") if chain.ok
                       else "; ".join(chain.failures)):
         return report
-    targets = entries_of("sheet", entries) if every else [_sheet_entry(entries, sheet_id)]
+    targets = (entries_of("sheet", entries) if every else
+               [_sheet_entry(entries, sheet_id)] if sheet_id else newest_by_market(entries))
     if not targets or targets[0] is None:
         report.add("sheet", False, f"the book holds no sheet {sheet_id or ''}".strip())
         return report
@@ -249,18 +266,20 @@ def proof_for(source: str, resource: str, sheet_id: Optional[str] = None,
     chain = check_chain(entries)
     if not chain.ok:
         raise RuntimeError("the book does not verify: " + "; ".join(chain.failures))
-    entry = _sheet_entry(entries, sheet_id)
-    if entry is None:
+    # the newest sheet of each market, newest first: an endpoint sold in two markets is found in the newest
+    looked = [_sheet_entry(entries, sheet_id)] if sheet_id else newest_by_market(entries)[::-1]
+    if not looked or looked[0] is None:
         raise LookupError(f"the book holds no sheet {sheet_id or ''}".strip())
-    report = Report()
-    sheet = _load_sheet(read, entry, report)
-    if sheet is None:
-        raise RuntimeError(report.checks[-1]["detail"])
-    leaves = sheet_lib.leaves(sheet)
-    for row, leaf in zip(sheet["rows"], leaves):
-        if row["resource"] == resource:
-            proof = merkle_proof(leaves, leaf)
-            return {"sheet": sheet["id"], "book_entry": {"seq": entry["seq"], "hash": entry["hash"]},
-                    "row": row, "leaf": leaf, "proof": proof, "root": entry["body"]["root"],
-                    "verified": verify_proof(leaf, proof, entry["body"]["root"])}
-    raise LookupError(f"{resource} is not on sheet {sheet['id']}")
+    for entry in looked:
+        report = Report()
+        sheet = _load_sheet(read, entry, report)
+        if sheet is None:
+            raise RuntimeError(report.checks[-1]["detail"])
+        leaves = sheet_lib.leaves(sheet)
+        for row, leaf in zip(sheet["rows"], leaves):
+            if row["resource"] == resource:
+                proof = merkle_proof(leaves, leaf)
+                return {"sheet": sheet["id"], "book_entry": {"seq": entry["seq"], "hash": entry["hash"]},
+                        "row": row, "leaf": leaf, "proof": proof, "root": entry["body"]["root"],
+                        "verified": verify_proof(leaf, proof, entry["body"]["root"])}
+    raise LookupError(f"{resource} is not on sheet {', '.join(e['body']['id'] for e in looked)}")
