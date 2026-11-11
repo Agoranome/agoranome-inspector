@@ -37,8 +37,12 @@ def _by_resource(sheet: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return {r["resource"]: r for r in sheet["rows"]}
 
 
-def _first_listed(r: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    listed = [o for o in r.get("listed") or [] if o.get("network") and o.get("asset") and o.get("amount")]
+# The keys that name where an option is paid, in what, and to whom, in each market.
+KEYS = {"x402": ("network", "asset", "pay_to"), "mpp": ("method", "currency", "recipient")}
+
+
+def _first_listed(r: Dict[str, Any], net: str, asset: str) -> Optional[Dict[str, Any]]:
+    listed = [o for o in r.get("listed") or [] if o.get(net) and o.get(asset) and o.get("amount")]
     return listed[0] if listed else None
 
 
@@ -48,6 +52,7 @@ def _change(resource: str, host: str, kind: str, before: Any, after: Any) -> Dic
 
 def diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
     old, new = _by_resource(before), _by_resource(after)
+    net, asset, pay = KEYS.get(after.get("market") or "x402", KEYS["x402"])
     found: List[Dict[str, Any]] = []
     for resource in sorted(set(old) | set(new)):
         a, b = old.get(resource), new.get(resource)
@@ -63,17 +68,17 @@ def diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
             found.append(_change(resource, host, "went_dark", va["answer"], vb["answer"]))
         elif va["answer"] != "payable" and vb["answer"] == "payable":
             found.append(_change(resource, host, "came_back", va["answer"], vb["answer"]))
-        la, lb = _first_listed(a), _first_listed(b)
-        if la and lb and (la["network"], la["asset"]) == (lb["network"], lb["asset"]) and la["amount"] != lb["amount"]:
+        la, lb = _first_listed(a, net, asset), _first_listed(b, net, asset)
+        if la and lb and (la[net], la[asset]) == (lb[net], lb[asset]) and la["amount"] != lb["amount"]:
             found.append(_change(resource, host, "listed_price_changed", la["amount"], lb["amount"]))
         aa, ab = va.get("asked"), vb.get("asked")
-        if aa and ab and (aa["network"], aa["asset"]) == (ab["network"], ab["asset"]):
+        if aa and ab and (aa.get(net), aa.get(asset)) == (ab.get(net), ab.get(asset)):
             if int(ab["amount"]) < int(aa["amount"]):
                 found.append(_change(resource, host, "price_cut", aa["amount"], ab["amount"]))
             elif int(ab["amount"]) > int(aa["amount"]):
                 found.append(_change(resource, host, "price_raised", aa["amount"], ab["amount"]))
-            if aa["pay_to"] != ab["pay_to"]:
-                found.append(_change(resource, host, "pay_to_changed", aa["pay_to"], ab["pay_to"]))
+            if aa.get(pay) != ab.get(pay):
+                found.append(_change(resource, host, "pay_to_changed", aa.get(pay), ab.get(pay)))
         for key in ("price", "pay_to"):
             if va.get(key) and vb.get(key) and va[key] != vb[key]:
                 found.append(_change(resource, host, "verdict_changed",

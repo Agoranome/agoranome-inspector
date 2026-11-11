@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
+    inputs:
+      publish_anyway:
+        description: "Publish even if the check before signing holds the sheet (the book will say so)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -30,4 +35,5 @@ jobs:
         env:
           INSPECTOR_SIGNING_KEY: ${{ secrets.INSPECTOR_SIGNING_KEY }}
           INSPECTOR_FIRST_KID: ${{ vars.INSPECTOR_FIRST_KID }}
+          PUBLISH_ANYWAY: ${{ github.event.inputs.publish_anyway == 'true' && 'yes' || '' }}
         run: bash scripts/weekly.sh

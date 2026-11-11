@@ -49,6 +49,7 @@ class Fetched:
     headers: Dict[str, str] = field(default_factory=dict)
     body: bytes = b""
     truncated: bool = False
+    www_authenticate: List[str] = field(default_factory=list)   # each header as sent, not joined
 
 
 def resolve(host: str, port: int) -> List[str]:
@@ -130,7 +131,8 @@ class SafeFetcher:
                             break
                     return Fetched(url=url, method=method, status=resp.status_code,
                                    headers={k.lower(): v for k, v in resp.headers.items()},
-                                   body=bytes(body[: self.max_bytes]), truncated=truncated)
+                                   body=bytes(body[: self.max_bytes]), truncated=truncated,
+                                   www_authenticate=[v[:8192] for v in resp.headers.get_list("www-authenticate")][:32])
         except httpx.HTTPError as e:
             raise FetchError(f"could not reach {host} ({type(e).__name__})") from e
         except (httpx.InvalidURL, UnicodeError) as e:

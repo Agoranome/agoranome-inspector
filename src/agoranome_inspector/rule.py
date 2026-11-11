@@ -68,6 +68,10 @@ METHOD = [
     "with its listed and live amount and address.",
     "Networks are compared as CAIP-2 ids (x402 v1 names are mapped; a reference longer than 32 characters is "
     "cut to 32), EVM addresses in lower case, other addresses as written, amounts as whole atomic units.",
+    "Strict formats: a field that does not look like what it is is dropped, so that no seller can put a sentence "
+    "into a signed sheet. A network must be a CAIP-2 id or an x402 v1 name; a scheme a short word; an asset or "
+    "address hex after 0x, or letters, digits and . _ : - only, at most 80 characters; a pay-to on an EVM "
+    "network a 20-byte address. An option missing a field is not payable.",
 ]
 
 

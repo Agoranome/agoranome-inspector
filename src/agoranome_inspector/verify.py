@@ -43,7 +43,7 @@ from agoranome_inspector import sheet as sheet_lib
 from agoranome_inspector.book import check_chain, entries_of, parse
 from agoranome_inspector.canonical import canonical, sha256_hex
 from agoranome_inspector.merkle import merkle_proof, verify_proof
-from agoranome_inspector.rule import RULES
+from agoranome_inspector.rules import RULES
 
 MAX_BYTES = 256 * 1024 * 1024
 SAFE_PATH = re.compile(r"^(sheets|changes)/[A-Za-z0-9._-]+\.(json|csv)$")
@@ -202,14 +202,14 @@ def check_changes(read: Callable[[str], bytes], entries: List[Dict[str, Any]], l
                else "the change log does not match the two sheets")
 
 
-def recheck(sheet: Dict[str, Any], n: int, ask: Callable[[str], Dict[str, Any]],
+def recheck(sheet: Dict[str, Any], n: int, ask: Callable[[Dict[str, Any]], Dict[str, Any]],
             rng: Optional[random.Random] = None) -> Dict[str, Any]:
     rng = rng or random.Random()
     rows = [r for r in sheet.get("rows") or [] if r["verdict"]["answer"] not in ("declined", "not_asked")]
     sample = rng.sample(rows, min(n, len(rows)))
     same, differ = 0, []
     for r in sample:
-        now = RULES[sheet["rule"]](r.get("listed") or [], ask(r["resource"]))
+        now = RULES[sheet["rule"]](r.get("listed") or [], ask(r))
         keys = ("answer", "price", "pay_to")
         if all(now.get(k) == r["verdict"].get(k) for k in keys):
             same += 1
@@ -220,7 +220,8 @@ def recheck(sheet: Dict[str, Any], n: int, ask: Callable[[str], Dict[str, Any]],
 
 def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[str] = None,
            since: Optional[Dict[str, Any]] = None, every: bool = False, recheck_n: int = 0,
-           get: Callable[[str], bytes] = http_get, ask: Optional[Callable[[str], Dict[str, Any]]] = None) -> Report:
+           get: Callable[[str], bytes] = http_get,
+           ask: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None) -> Report:
     report = Report()
     read = opener(source, get)
     try:
@@ -249,11 +250,15 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
         report.add("anchors", True, f"{len(anchors)} reading(s) of the lab's receipt roots, {len(months)} month(s)")
     if recheck_n and sheet is not None and report.ok:
         if ask is None:
+            from agoranome_inspector import mpp
             from agoranome_inspector.fetch import SafeFetcher
             from agoranome_inspector.probe import probe
 
             fetcher = SafeFetcher()
-            ask = lambda url: probe(fetcher, url)   # noqa: E731
+            if sheet_lib.market_of(sheet) == "mpp":
+                ask = lambda row: mpp.probe(fetcher, row)   # noqa: E731
+            else:
+                ask = lambda row: probe(fetcher, row["resource"])   # noqa: E731
         report.recheck = recheck(sheet, recheck_n, ask)
     return report
 

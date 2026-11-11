@@ -28,7 +28,8 @@ from agoranome_inspector import networks
 from agoranome_inspector.bazaar import INDEX_URL, REAL_DEMAND_PAYERS, is_repeat_use
 from agoranome_inspector.canonical import canonical
 from agoranome_inspector.merkle import leaf_hash, merkle_root
-from agoranome_inspector.rule import METHOD, RULE, RULES
+from agoranome_inspector.rule import METHOD, RULE
+from agoranome_inspector.rules import RULES
 
 KIND = "agoranome.x402-sheet"
 MARKET = "x402"
@@ -46,6 +47,9 @@ def row(listing: Dict[str, Any], seen: Optional[Dict[str, Any]], *, publish_inde
         "seen": seen,
         "verdict": RULES[rule](listing["listed"], seen),
     }
+    for key in ("service", "http_method", "url"):     # MPP rows: the catalog's service and how it is asked
+        if key in listing:
+            out[key] = listing[key]
     if publish_index_counts:
         out["index"] = {"payers_30d": listing["payers_30d"], "calls_30d": listing["calls_30d"],
                         "repeat_use": is_repeat_use(listing)}
@@ -129,6 +133,10 @@ CSV_COLUMNS = ["resource", "host", "category", "answer", "price", "pay_to", "mat
 
 
 def to_csv(sheet: Dict[str, Any]) -> str:
+    if market_of(sheet) == "mpp":
+        from agoranome_inspector import mpp
+
+        return mpp.to_csv(sheet)
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
     writer.writerow(CSV_COLUMNS)

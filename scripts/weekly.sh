@@ -32,14 +32,41 @@ else
   git worktree add --orphan -b "$BRANCH" "$SITE"
 fi
 
-"$INSPECTOR" run "$SITE" --private "$PRIVATE" ${RUN_ARGS:-}
-touch "$SITE/.nojekyll"
+# Each market in turn, into the same book. A market joins this list once its trial runs have been checked.
+# A sheet the check before signing holds is not published: the other markets still run and are published, then
+# the job fails so that GitHub tells the repository's owner. After looking, start the workflow by hand with
+# "publish anyway" to publish it.
+held=""
+for market in ${RUN_MARKETS:-x402}; do
+  set +e
+  "$INSPECTOR" run "$SITE" --market "$market" --private "$PRIVATE" ${PUBLISH_ANYWAY:+--publish-anyway} ${RUN_ARGS:-}
+  code=$?
+  set -e
+  if [ "$code" -eq 3 ]; then
+    held="$held $market"
+  elif [ "$code" -ne 0 ]; then
+    exit "$code"
+  fi
+done
 
-# A pinned first key, once Shariar has published it as the repository variable INSPECTOR_FIRST_KID.
-"$INSPECTOR" verify "$SITE" --all ${INSPECTOR_FIRST_KID:+"--key=$INSPECTOR_FIRST_KID"}
+if [ -f "$SITE/book.jsonl" ]; then
+  touch "$SITE/.nojekyll"
+  # A pinned first key, once Shariar has published it as the repository variable INSPECTOR_FIRST_KID.
+  "$INSPECTOR" verify "$SITE" --all ${INSPECTOR_FIRST_KID:+"--key=$INSPECTOR_FIRST_KID"}
+  (
+    cd "$SITE"
+    git add -A
+    if git diff --cached --quiet; then
+      echo "Nothing new to publish."
+    else
+      git commit -q -m "Sheet $(date -u +%Y-%m-%d)"
+      git push origin "$BRANCH"
+      echo "Published: $(tr -d '\n ' < head.json)"
+    fi
+  )
+fi
 
-cd "$SITE"
-git add -A
-git commit -q -m "Sheet $(date -u +%Y-%m-%d)"
-git push origin "$BRANCH"
-echo "Published: $(cat head.json | tr -d '\n ')"
+if [ -n "$held" ]; then
+  echo "::error::Held by the check before signing, not published:$held. See the log above for why."
+  exit 1
+fi

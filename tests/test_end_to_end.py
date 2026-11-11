@@ -208,7 +208,8 @@ def test_recheck_reports_agreement_without_failing(site):
     market.sellers["pricey.example"] = honest("5000")
     fetcher = market.fetcher()
     from agoranome_inspector.probe import probe
-    report = verify(str(path), recheck_n=20, ask=lambda url: probe(fetcher, url, retry_pause=0, sleep=lambda s: None))
+    report = verify(str(path), recheck_n=20,
+                    ask=lambda row: probe(fetcher, row["resource"], retry_pause=0, sleep=lambda s: None))
     assert report.ok
     assert report.recheck["asked"] == 7 and "https://pricey.example/search" in report.recheck["differ"]
 

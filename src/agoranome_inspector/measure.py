@@ -58,30 +58,39 @@ class Settings:
     min_payers: int = REAL_DEMAND_PAYERS
 
 
+Asker = Callable[[Dict[str, Any]], Dict[str, Any]]
+
+
 def ask_all(listings: List[Dict[str, Any]], fetcher: SafeFetcher, settings: Settings,
             sleep: Callable[[float], None] = time.sleep, monotonic: Callable[[], float] = time.monotonic,
-            clock: Callable[[], str] = _now) -> Dict[str, Dict[str, Any]]:
-    """Ask every listing it can within the budget; returns what each answered, keyed by resource."""
+            clock: Callable[[], str] = _now, *, asker: Optional[Asker] = None, again: Optional[Asker] = None,
+            judge_fn: Callable[[List[Dict[str, Any]], Optional[Dict[str, Any]]], Dict[str, Any]] = judge
+            ) -> Dict[str, Dict[str, Any]]:
+    """Ask every listing it can within the budget; returns what each answered, keyed by resource. `asker` asks a
+    listing (with its retry), `again` asks it once more to confirm, `judge_fn` is the market's rule; the
+    defaults are x402's."""
+    asker = asker or (lambda listing: probe(fetcher, listing["resource"], retry_pause=settings.retry_pause,
+                                            sleep=sleep, clock=clock))
+    again = again or (lambda listing: ask(fetcher, listing["resource"]))
     by_host: Dict[str, List[Dict[str, Any]]] = {}
     for listing in listings:
         by_host.setdefault(listing["host"], []).append(listing)
-    order = sorted(by_host, key=lambda h: (-sum(x["payers_30d"] for x in by_host[h]), h))
+    order = sorted(by_host, key=lambda h: (-sum(x.get("payers_30d", 0) for x in by_host[h]), h))
     deadline = monotonic() + settings.budget_seconds
     seen: Dict[str, Dict[str, Any]] = {}
 
     def one_host(host: str) -> None:
-        mine = sorted(by_host[host], key=lambda x: (-x["payers_30d"], -x["calls_30d"], x["resource"]))
+        mine = sorted(by_host[host], key=lambda x: (-x.get("payers_30d", 0), -x.get("calls_30d", 0), x["resource"]))
         for i, listing in enumerate(mine[: settings.per_host]):
             if monotonic() >= deadline:
                 return
             if i:
                 sleep(settings.host_pause)
             try:
-                found = probe(fetcher, listing["resource"], retry_pause=settings.retry_pause, sleep=sleep,
-                              clock=clock)
-                if needs_confirmation(judge(listing["listed"], found)):
+                found = asker(listing)
+                if needs_confirmation(judge_fn(listing["listed"], found)):
                     sleep(settings.confirm_pause)
-                    found["again"] = {"at": clock(), **ask(fetcher, listing["resource"])}
+                    found["again"] = {"at": clock(), **again(listing)}
                 seen[listing["resource"]] = found
             except Exception as e:   # one listing lost must not stop the host's others
                 logger.warning(f"probe of {listing['resource']} failed: {type(e).__name__}")

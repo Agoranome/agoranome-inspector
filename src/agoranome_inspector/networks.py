@@ -116,3 +116,51 @@ def usd(net: Optional[str], asset: Optional[str], atomic: Optional[str]) -> Opti
 
 def is_testnet(net: Optional[str]) -> bool:
     return net in TESTNETS
+
+
+# --- Strict formats -----------------------------------------------------------------------------------------------
+# Every field a seller writes and the sheet keeps must look like what it is, so that no seller can put a sentence
+# (an instruction aimed at buyer agents, say) into a signed sheet. A field that does not is dropped, and an option
+# without a usable network, asset, amount and pay-to is not payable.
+
+CAIP2 = re.compile(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$")
+V1_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
+SCHEME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$")
+HEX_ADDRESS = re.compile(r"^0x[0-9a-f]{40,64}$")
+EVM_ADDRESS = re.compile(r"^0x[0-9a-f]{40}$")
+TOKEN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")
+VERSION = re.compile(r"^[0-9]{1,3}(\.[0-9]{1,3}){0,2}$")
+
+
+def strict_network(value: Any) -> Optional[str]:
+    """A network as a CAIP-2 id, or an x402 v1 short name not mapped yet; None for anything else."""
+    found = network(value)
+    return found if found and (CAIP2.match(found) or V1_NAME.match(found)) else None
+
+
+def strict_scheme(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text if SCHEME.match(text) else None
+
+
+def identifier(value: Any) -> Optional[str]:
+    """An address or asset id: hex after 0x (in lower case), else letters, digits and . _ : - only, at most 80."""
+    found = address(value)
+    if found is None:
+        return None
+    if found.startswith("0x"):
+        return found if HEX_ADDRESS.match(found) else None
+    return found if TOKEN_ID.match(found) else None
+
+
+def pay_to(value: Any, net: Optional[str]) -> Optional[str]:
+    """A pay-to address; on an EVM network it must be a 20-byte address."""
+    found = identifier(value)
+    if found and net and net.startswith("eip155:") and not EVM_ADDRESS.match(found):
+        return None
+    return found
+
+
+def version(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text if VERSION.match(text) else None

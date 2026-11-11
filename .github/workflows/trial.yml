@@ -35,3 +35,6 @@ jobs:
           SAMPLE: ${{ github.event.inputs.sample || '1500' }}
           BUDGET: ${{ github.event.inputs.budget || '900' }}
         run: python scripts/trial.py --sample "$SAMPLE" --budget "$BUDGET"
+      - name: Trial (MPP)
+        if: always()
+        run: python scripts/trial.py --market mpp --sample 1000 --per-host 3 --budget 600

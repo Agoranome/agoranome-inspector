@@ -14,7 +14,10 @@ import tempfile
 import time
 from collections import Counter
 
+from agoranome_inspector import mpp
+from agoranome_inspector import rule_mpp
 from agoranome_inspector import sheet as sheet_lib
+from agoranome_inspector.checks import before_signing
 from agoranome_inspector.bazaar import IndexReader, select
 from agoranome_inspector.fetch import SafeFetcher
 from agoranome_inspector.keys import Signer
@@ -47,7 +50,7 @@ def mismatches(built: dict) -> dict:
         shapes[f"{v['price']} / {v['pay_to']} / asked twice: {r['seen'].get('again') is not None}"] += 1
         options[len(r["listed"])] += 1
         for d in v["differs"]:
-            schemes[d.get("scheme") or ""] += 1
+            schemes[d.get("scheme") or d.get("intent") or ""] += 1
             if d["price"] != "as_listed":
                 ratios[_ratio(d["asked_amount"], d["listed_amount"])] += 1
     return {"rows": len(rows), "shapes": dict(shapes.most_common()), "ratios": top(ratios, 15),
@@ -56,7 +59,8 @@ def mismatches(built: dict) -> dict:
 
 def _differing(rows: list) -> list:
     return [r for r in rows if r["verdict"]["answer"] == "payable"
-            and (r["verdict"]["price"] not in ("as_listed", "not_listed") or r["verdict"]["pay_to"] != "as_listed")]
+            and (r["verdict"]["price"] not in ("as_listed", "not_listed")
+                 or r["verdict"]["pay_to"] not in ("as_listed", "not_listed"))]
 
 
 def _power_of_ten(asked: str, listed: str) -> bool:
@@ -124,13 +128,87 @@ def why(built: dict) -> dict:
             "pay_to_options": dict(pay.most_common()), "price_options": dict(price.most_common())}
 
 
+def _dropped(options: list, keys: tuple) -> int:
+    """Live options with an amount whose other fields were dropped by the strict formats."""
+    return sum(1 for o in options if o.get("amount") and any(o.get(k) is None for k in keys))
+
+
+def _sample(listings: list, n: int, per_host: int, seed: int) -> list:
+    rng = random.Random(seed)
+    shuffled = listings[:]
+    rng.shuffle(shuffled)
+    count: Counter = Counter()
+    out = []
+    for x in shuffled:
+        if count[x["host"]] < per_host:
+            out.append(x)
+            count[x["host"]] += 1
+        if len(out) >= n:
+            break
+    return out
+
+
+def _verify(built: dict) -> dict:
+    with tempfile.TemporaryDirectory() as site:
+        publish(site, built, Signer.generate())
+        checked = verify(site)
+        return {"ok": checked.ok, "checks": [c["check"] + (" PASS" if c["ok"] else " FAIL") for c in checked.checks],
+                "sheet_bytes_per_row": round(len(sheet_lib.to_bytes(built)) / max(1, len(built["rows"])))}
+
+
+def trial_mpp(args) -> None:
+    """The MPP catalog, asked unpaid: counts only, no service named."""
+    t0 = time.monotonic()
+    catalog = mpp.CatalogReader().read()
+    listings = catalog["listings"]
+    listed = [x["listed"][0] for x in listings]
+    report = {"catalog": {"seconds": round(time.monotonic() - t0), "services": catalog["services"],
+                          "paid_endpoints": len(listings), "hosts": len({x["host"] for x in listings}),
+                          "skipped": catalog["skipped"],
+                          "listed_methods": top(Counter(o["method"] for o in listed)),
+                          "listed_intents": top(Counter(o["intent"] for o in listed)),
+                          "listed_currencies": top(Counter(o["currency"] for o in listed), 5),
+                          "dynamic": sum(1 for o in listed if o["dynamic"]),
+                          "http_methods": top(Counter(x["http_method"] for x in listings)),
+                          "categories": top(Counter(x["category"] for x in listings), 12)}}
+    sample = _sample(listings, args.sample, args.per_host, args.seed)
+    fetcher = SafeFetcher()
+    settings = Settings(concurrency=12, per_host=args.per_host, host_pause=0.5, budget_seconds=args.budget)
+    t1 = time.monotonic()
+    seen = ask_all(sample, fetcher, settings, asker=lambda x: mpp.probe(fetcher, x),
+                   again=lambda x: mpp.ask(fetcher, x), judge_fn=rule_mpp.judge)
+    built = mpp.build({"id": "mpp-trial", "catalog": {"url": catalog["url"], "read_at": None},
+                       "probe": {"trial": True}, "listings": sample, "seen": seen})
+    observed = [s for s in seen.values() if s]
+    report["probe"] = {"sample": len(sample), "asked": len(seen), "seconds": round(time.monotonic() - t1),
+                       "status": top(Counter(str(s.get("status")) for s in observed), 12),
+                       "where": top(Counter(str(s.get("where")) for s in observed)),
+                       "errors": top(Counter(str(s.get("error")) for s in observed if s.get("error"))),
+                       "also_x402": sum(1 for s in observed if s.get("also_x402")),
+                       "challenges_per_answer": top(Counter(len(s["options"]) for s in observed)),
+                       "live_methods": top(Counter(o.get("method") for s in observed for o in s["options"])),
+                       "live_intents": top(Counter(o.get("intent") for s in observed for o in s["options"])),
+                       "options_with_a_dropped_field": sum(
+                           _dropped(s["options"], ("method", "intent", "currency", "recipient")) for s in observed)}
+    report["sheet"] = built["summary"]
+    report["mismatches"] = mismatches(built)
+    report["mismatching_hosts"] = len({r["host"] for r in _differing(built["rows"])})
+    report["check_before_signing"] = before_signing(built)
+    report["verify"] = _verify(built)
+    print(json.dumps(report, indent=2))
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
+    p.add_argument("--market", choices=("x402", "mpp"), default="x402")
     p.add_argument("--sample", type=int, default=400)
     p.add_argument("--per-host", type=int, default=2)
     p.add_argument("--budget", type=float, default=900)
     p.add_argument("--seed", type=int, default=402)
     args = p.parse_args()
+    if args.market == "mpp":
+        trial_mpp(args)
+        return
 
     t0 = time.monotonic()
     index = IndexReader().read()
@@ -149,17 +227,7 @@ def main() -> None:
                   "categories": top(Counter(x["category"] for x in chosen), 12)},
     }
 
-    rng = random.Random(args.seed)
-    shuffled = chosen[:]
-    rng.shuffle(shuffled)
-    per_host: Counter = Counter()
-    sample = []
-    for x in shuffled:
-        if per_host[x["host"]] < args.per_host:
-            sample.append(x)
-            per_host[x["host"]] += 1
-        if len(sample) >= args.sample:
-            break
+    sample = _sample(chosen, args.sample, args.per_host, args.seed)
 
     t1 = time.monotonic()
     seen = ask_all(sample, SafeFetcher(), Settings(concurrency=12, per_host=args.per_host, host_pause=0.5,
@@ -173,17 +241,16 @@ def main() -> None:
                        "status": top(Counter(str(s.get("status")) for s in observed), 12),
                        "errors": top(Counter(str(s.get("error")) for s in observed if s.get("error"))),
                        "asked_twice": sum(1 for s in observed if s.get("attempts") == 2),
-                       "live_schemes": top(Counter(o.get("scheme") for s in observed for o in s["options"]))}
+                       "live_schemes": top(Counter(o.get("scheme") for s in observed for o in s["options"])),
+                       "options_with_a_dropped_field": sum(
+                           _dropped(s["options"], ("scheme", "network", "asset", "pay_to")) for s in observed),
+                       "listed_options_with_a_dropped_field": sum(_dropped(x["listed"], ("network", "asset"))
+                                                                  for x in sample)}
     report["sheet"] = built["summary"]
     report["mismatches"] = mismatches(built)
     report["why"] = why(built)
-
-    with tempfile.TemporaryDirectory() as site:
-        publish(site, built, Signer.generate())
-        checked = verify(site)
-        report["verify"] = {"ok": checked.ok, "checks": [c["check"] + (" PASS" if c["ok"] else " FAIL")
-                                                         for c in checked.checks]}
-        report["sheet_bytes_per_row"] = round(len(sheet_lib.to_bytes(built)) / max(1, len(built["rows"])))
+    report["check_before_signing"] = before_signing(built)
+    report["verify"] = _verify(built)
     print(json.dumps(report, indent=2))
 
 

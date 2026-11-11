@@ -146,16 +146,36 @@ def cmd_publish(args) -> int:
 
 
 def cmd_run(args) -> int:
+    from agoranome_inspector import sheet as sheet_lib
+    from agoranome_inspector.checks import before_signing
     from agoranome_inspector.measure import run
-    from agoranome_inspector.publish import publish
+    from agoranome_inspector.publish import note, previous_sheet, publish
 
     signer = _key(args)   # fail before an hours-long run, not after it
     private = Path(args.private)
     private.mkdir(parents=True, exist_ok=True)
-    found = run(args.id, settings=_settings(args))
-    (private / f"run-{found['id']}.json").write_text(json.dumps(found))
-    built = _sheet_from_run(found, args.publish_index_counts)
+    if args.market == "mpp":
+        from agoranome_inspector import mpp
+
+        found = mpp.run(args.id, settings=_settings(args))
+        (private / f"run-{found['id']}.json").write_text(json.dumps(found))
+        built = mpp.build(found)
+    else:
+        found = run(args.id, settings=_settings(args))
+        (private / f"run-{found['id']}.json").write_text(json.dumps(found))
+        built = _sheet_from_run(found, args.publish_index_counts)
+    reasons = before_signing(built, previous_sheet(args.site, sheet_lib.market_of(built)))
+    if reasons and not args.publish_anyway:
+        held = private / f"held-{built['id']}.json"
+        held.write_bytes(sheet_lib.to_bytes(built))
+        print(json.dumps({"held": reasons, "sheet": built["id"], "summary": built["summary"]}))
+        print(f"HELD, not published: {'; '.join(reasons)}. Look at {held} and run again with --publish-anyway "
+              "to publish it.", file=sys.stderr)
+        return 3
     out = publish(args.site, built, signer)
+    if reasons:
+        note(args.site, signer, "Published past the check before signing, by the operator's choice: "
+             + "; ".join(reasons) + ".", refs={"sheet": built["id"]})
     print(json.dumps({"summary": built["summary"], "head": out["head"]}))
     return 0
 
@@ -212,7 +232,7 @@ def parser() -> argparse.ArgumentParser:
     k.set_defaults(func=cmd_keygen)
 
     def measuring(sp):
-        sp.add_argument("--id", help="the sheet's id (default: x402- and today's UTC date)")
+        sp.add_argument("--id", help="the sheet's id (default: the market and today's UTC date)")
         sp.add_argument("--concurrency", type=int, default=16)
         sp.add_argument("--per-host", type=int, default=100)
         sp.add_argument("--budget", type=float, default=3 * 3600, help="seconds for the whole run")
@@ -241,6 +261,10 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--private", required=True, help="where the private run file is kept")
     r.add_argument("--key-file")
     r.add_argument("--publish-index-counts", action="store_true")
+    r.add_argument("--publish-anyway", action="store_true",
+                   help="publish even when the check before signing would hold the sheet (the book says so)")
+    r.add_argument("--market", choices=("x402", "mpp"), default="x402",
+                   help="x402 (Coinbase's Bazaar index) or mpp (the MPP catalog at mpp.dev)")
     measuring(r)
     r.set_defaults(func=cmd_run)
 

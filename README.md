@@ -10,8 +10,8 @@ they pay for, and we pledge 15% of what we earn to a public cause.
 This is phase 1 of the plan, "Prove": the sheet, the change log, the open book and its verifier. Nothing here is
 sold. The tools are free, and the published sheets are under CC BY 4.0.
 
-One book holds the sheets of several markets. x402 is the first. MPP (the Machine Payments Protocol) and Skyfire
-are next: each will get its own sheet and rule beside x402's, in the same book.
+One book holds the sheets of several markets: x402 (rule `sheet-1`) and MPP, the Machine Payments Protocol (rule
+`mpp-1`). Skyfire is next.
 
 ## Check a sheet in one command
 
@@ -87,6 +87,10 @@ function of the other two, so anyone can judge a row again.
   can see exactly what was compared.
 - **Comparing.** Networks as CAIP-2 ids (x402 v1 names are mapped, and a reference longer than 32 characters is
   cut to 32), EVM addresses in lower case, other addresses as written, amounts as whole atomic units.
+- **Strict formats.** A field that does not look like what it is is dropped, so that no seller can put a sentence
+  (an instruction aimed at buyer agents, say) into a signed sheet: a network must be a CAIP-2 id or an x402 v1
+  name, a scheme a short word, an asset or address hex after `0x` or letters, digits and `. _ : -` only (at most 80),
+  and a pay-to on an EVM network a 20-byte address. An option missing a field is not payable.
 
 A rule never changes once a sheet is published under it. A new rule gets a new name, and each sheet names the
 rule it was judged by, so an old sheet always verifies under its own rule.
@@ -97,6 +101,21 @@ Coinbase's developer terms limit sharing data from its tools without written per
 carries the seller's own statements and answers, and not the index's payer and call counts. The counts are used
 only to choose who is on the sheet, and they stay in the operator's private run file. `sheet
 --publish-index-counts` puts them in the rows, and should only be used once Coinbase has said yes in writing.
+
+## The MPP sheet
+
+One row for each paid endpoint in the public MPP catalog (`https://mpp.dev/api/services`), except paths that need
+parameters filled in. The catalog states no demand, so the sheet claims none. Each endpoint is asked with the
+HTTP method the catalog lists (GET, or POST with an empty JSON body; other methods are not asked). An MPP endpoint
+answers 402 with one `WWW-Authenticate: Payment` challenge for each way it can be paid; its `request` names the
+amount, the currency and the recipient.
+
+The rule `mpp-1` compares as `sheet-1` does, with the payment method in the place of the network, the currency in
+the place of the asset and the intent in the place of the scheme. The catalog names no recipient, so the recipient
+is recorded and its changes logged, but never judged (`pay_to` is `not_listed`, and a matching price is enough for
+`matches_listing: true`). A price the catalog marks `dynamic` is not judged. The realm and description a challenge
+carries are free text and are not kept. A row's `resource` is the method and the URL
+(`POST https://example.com/v1/answer`), so an endpoint asked two ways has two rows.
 
 ## The change log
 
@@ -170,6 +189,16 @@ It needs, once, in the repository's settings:
    then refuses to publish a book whose first key is any other.
 3. **Pages**: source "Deploy from a branch", branch `gh-pages`, folder `/ (root)`. The branch exists after the first
    run. The site is then at `https://shariar-k.github.io/agoranome1/`.
+
+Each market in `RUN_MARKETS` (x402 by default) runs in turn into the same book; a market joins the list once its
+trial runs have been checked.
+
+**The check before signing.** The verifier proves the book is consistent, not that a week's reading is sound, and
+the book only grows. So `run` holds a sheet unpublished, and the job fails so that GitHub tells the owner, when the
+index was not read completely, the sheet has no rows, more than 25% of the endpoints asked gave no answer at all,
+or, against the last sheet of the same market, the row count moved by more than 30% or the payable share by more
+than 10 points. Other markets are still published. After looking, start the workflow by hand with "publish
+anyway"; the book then carries a note saying the sheet was published past the check, and why.
 
 The private run file, with the index's payer and call counts, is written outside the site and is discarded with
 the runner. GitHub turns off a schedule in a public repository after 60 days without activity; if it ever does,

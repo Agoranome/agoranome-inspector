@@ -46,7 +46,7 @@ def test_change_logs_stay_within_their_market(tmp_path):
     assert checked == ["sheet mpp-2026-11-16 rule", "sheet x402-2026-11-23 rule"]     # the newest of each
     assert verify(str(tmp_path), every=True).ok
     page = (tmp_path / "index.html").read_text()
-    assert "x402: sheet x402-2026-11-23" in page and "mpp: sheet mpp-2026-11-16" in page
+    assert "x402: sheet x402-2026-11-23" in page and "MPP: sheet mpp-2026-11-16" in page
     assert proof_for(str(tmp_path), "https://pricey.example/search")["sheet"] == "x402-2026-11-23"
 
 

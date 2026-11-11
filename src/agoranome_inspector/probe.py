@@ -33,11 +33,8 @@ from agoranome_inspector.canonical import sha256_hex
 from agoranome_inspector.fetch import FetchError, Fetched, SafeFetcher
 
 MAX_OPTIONS = 16
-MAX_FIELD = 200   # characters kept of any one field a seller sends
 
 
-def _field(value: Any) -> Optional[str]:
-    return value[:MAX_FIELD] if isinstance(value, str) else value
 
 
 def _now() -> str:
@@ -80,12 +77,13 @@ def options(offer: Optional[Dict[str, Any]]) -> List[Dict[str, Optional[str]]]:
     for option in (offer or {}).get("accepts") or []:
         if not isinstance(option, dict):
             continue
+        net = networks.strict_network(option.get("network"))
         found.append({
-            "scheme": _field(str(option.get("scheme") or "").strip() or None),
-            "network": _field(networks.network(option.get("network"))),
-            "asset": _field(networks.address(option.get("asset"))),
+            "scheme": networks.strict_scheme(option.get("scheme")),
+            "network": net,
+            "asset": networks.identifier(option.get("asset")),
             "amount": networks.amount(option.get("amount", option.get("maxAmountRequired"))),
-            "pay_to": _field(networks.address(option.get("payTo"))),
+            "pay_to": networks.pay_to(option.get("payTo"), net),
         })
     found.sort(key=lambda o: tuple(o[k] or "" for k in ("network", "asset", "amount", "pay_to", "scheme")))
     return found[:MAX_OPTIONS]
@@ -95,7 +93,7 @@ def fair_offer_version(offer: Optional[Dict[str, Any]]) -> Optional[str]:
     block = ((offer or {}).get("extensions") or {}).get("fair-offer")
     info = block.get("info") if isinstance(block, dict) else None
     version = info.get("version") if isinstance(info, dict) else None
-    return str(version)[:16] if version else None
+    return networks.version(version) if version else None
 
 
 def observe(fetched: Fetched) -> Dict[str, Any]:

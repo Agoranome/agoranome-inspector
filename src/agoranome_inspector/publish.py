@@ -63,6 +63,16 @@ def load_sheet(site: Path, entry: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(data)
 
 
+def previous_sheet(site_dir: str, market: str) -> Optional[Dict[str, Any]]:
+    """The last sheet of a market the site's book holds, read and checked against the book; None if there is none."""
+    site = Path(site_dir)
+    if not (site / BOOK).exists():
+        return None
+    same = [e for e in entries_of("sheet", Book(str(site / BOOK)).entries())
+            if sheet_lib.market_of(e["body"]) == market]
+    return load_sheet(site, same[-1]) if same else None
+
+
 def publish(site_dir: str, sheet: Dict[str, Any], signer: Signer, time: Optional[str] = None) -> Dict[str, Any]:
     """Write the sheet, its table and its change log, and put them into the book. A sheet id is published once."""
     site = Path(site_dir)
@@ -113,6 +123,7 @@ ANSWER_WORDS = {
 
 MARKET_WORDS = {
     "x402": ("x402", "Every listing in Coinbase's x402 Bazaar with 3 or more payers in 30 days"),
+    "mpp": ("MPP", "Every paid endpoint in the public MPP catalog at mpp.dev (the catalog states no demand)"),
 }
 
 
@@ -125,16 +136,25 @@ def _market_section(body: Dict[str, Any]) -> str:
     payable = s.get("answer", {}).get("payable", 0)
     price = s.get("price", {})
     pay_to = s.get("pay_to", {})
-    return f"""<h2>{e(name)}: sheet {e(body['id'])}</h2>
-<p>{e(who)}, asked without paying (twice when an answer differs from the listing) and judged by the published rule
-<code>{e(body['rule'])}</code>. {s.get("rows", 0):,} listings from {s.get("hosts", 0):,} sellers. What they answered:</p>
-<ul>{answers}</ul>
-<p>Of the {payable:,} payable offers, {price.get('as_listed', 0) + price.get('below_listed', 0):,} asked no more than
+    if sheet_lib.market_of(body) == "mpp":
+        detail = f"""<p>Of the {payable:,} payable challenges, {price.get('as_listed', 0) + price.get('below_listed', 0):,}
+asked no more than the catalog's price and {price.get('above_listed', 0):,} asked more;
+{price.get('not_listed', 0):,} are priced by the request (dynamic) and not judged on price;
+{price.get('varies', 0):,} varied between two asks and are not held against anyone. The catalog names no recipient,
+so the recipient each challenge names is recorded, not judged.</p>
+"""
+    else:
+        detail = f"""<p>Of the {payable:,} payable offers, {price.get('as_listed', 0) + price.get('below_listed', 0):,} asked no more than
 their listed price and {price.get('above_listed', 0):,} asked more; {pay_to.get('different', 0):,} named a pay-to
 address other than the listed one; {price.get('varies', 0) + pay_to.get('varies', 0):,} verdicts varied between two
 asks and are not held against anyone. A difference from the listing can mean the listing is out of date.
 {s.get('fair_offer', 0):,} carried a Fair Offer block.</p>
 """
+    return f"""<h2>{e(name)}: sheet {e(body['id'])}</h2>
+<p>{e(who)}, asked without paying (twice when an answer differs from the listing) and judged by the published rule
+<code>{e(body['rule'])}</code>. {s.get("rows", 0):,} listings from {s.get("hosts", 0):,} sellers. What they answered:</p>
+<ul>{answers}</ul>
+{detail}"""
 
 
 def write_index(site: Path, book: Book) -> None:
