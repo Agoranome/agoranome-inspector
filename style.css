@@ -116,10 +116,96 @@ pre { background: var(--surface-solid); border: 1px solid var(--border); border-
 .footer-base { border-top: 1px solid var(--border); padding: 18px 0 28px; }
 .footer-base p { margin: 0; color: var(--muted); font-size: 0.82rem; }
 
+/* Charts (charts.py). Soft series tones for the site's baby blue, checked on --surface-solid so every pair stays
+   apart, colour-blind simulations included; s0 is a context grey, r1 to r5 one peach hue from dim to bright. Text
+   keeps the ink colors; a mark's color only says which series it is. The ramp is muted where an offer asks a
+   little more and bright where it asks ten times or more. */
+.chart { margin: 18px 0 26px; padding: 20px 22px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
+.chart figcaption { margin-bottom: 14px; }
+.chart-title { display: block; color: var(--ink); font-weight: 650; font-size: 1.04rem; letter-spacing: -0.01em; }
+.chart-sub { display: block; color: var(--ink-2); font-size: 0.93rem; margin-top: 4px; }
+.chart-note { color: var(--muted); font-size: 0.84rem; margin: 12px 0 0; }
+.s0 { --c: #7d8e9e; } .s1 { --c: #9ecaef; } .s2 { --c: #fcb17e; } .s3 { --c: #2eab98; } .s4 { --c: #a97e2c; }
+.s5 { --c: #8e7ab5; }
+.r1 { --c: #6b594e; } .r2 { --c: #907461; } .r3 { --c: #b88e72; } .r4 { --c: #e5a880; } .r5 { --c: #ffbe8a; }
+.chart [data-v] { cursor: default; }
+.chart [data-v]:hover { filter: brightness(1.12); }
+.chart-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0; margin: 14px 0 0; }
+.chart-legend li { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.86rem; }
+.chart-legend li::marker, .ring-parts li::marker { content: ""; }
+.chart-legend i, .ring-parts i { width: 12px; height: 12px; border-radius: 3px; background: var(--c); flex: none; }
+.chart-scroll { overflow-x: auto; }
+.chart-svg { display: block; width: 100%; min-width: 480px; height: auto; font-family: var(--sans); }
+.chart-svg .grid { stroke: var(--border); stroke-width: 1; }
+.chart-svg .tick { fill: var(--muted); font-size: 11px; }
+.chart-svg .end { fill: var(--ink); font-size: 12px; font-weight: 600; }
+.chart-svg .ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.chart-svg .ref-label { fill: var(--muted); font-size: 11px; }
+.chart-svg .line { fill: none; stroke: var(--c); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.chart-svg .dot { fill: var(--c); stroke: var(--surface-solid); stroke-width: 2; }
+/* Rings: a market per card, its parts named beside it. */
+.rings { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 22px 36px; }
+.ring-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.ring-head b { color: var(--ink); font-size: 1rem; }
+.ring-head span { color: var(--muted); font-size: 0.82rem; }
+.ring-body { display: flex; align-items: center; gap: 18px; }
+.ring-svg { width: 136px; height: 136px; flex: none; font-family: var(--sans); }
+.ring-svg .arc { fill: none; stroke: var(--c); stroke-width: 20; }
+.ring-svg .ring-big { fill: var(--ink); font-size: 26px; font-weight: 720; letter-spacing: -0.02em; }
+.ring-svg .ring-small { fill: var(--muted); font-size: 11px; }
+.ring-parts { list-style: none; padding: 0; margin: 0; display: grid; gap: 5px; flex: 1; min-width: 0; }
+.ring-parts li { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; margin: 0;
+  font-size: 0.85rem; line-height: 1.3; }
+.ring-parts b { color: var(--ink); font-weight: 600; }
+/* Dot plot: a dot per kind of job on one scale, the whole as a dashed line. */
+.dots { --ref: 0%; }
+.dot-row { display: grid; grid-template-columns: minmax(10em, 14.5em) 1fr; gap: 12px; align-items: center; }
+.dot-name { color: var(--ink-2); font-size: 0.88rem; line-height: 1.25; padding: 4px 0; }
+.dot-track { position: relative; height: 30px; margin-right: 3.6em; }
+.dot-track::before { content: ""; position: absolute; top: 0; bottom: 0; left: var(--ref);
+  border-left: 1px dashed var(--muted); }
+.stem { position: absolute; left: 0; top: 50%; height: 2px; margin-top: -1px; background: var(--border-strong);
+  border-radius: 2px; }
+.pin { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+  background: var(--c); box-shadow: 0 0 0 2px var(--surface-solid); }
+.dot-val { position: absolute; top: 50%; transform: translate(14px, -50%); color: var(--ink); font-size: 0.82rem;
+  white-space: nowrap; }
+.dot-axis .dot-track { height: 34px; border-top: 1px solid var(--border-strong); }
+.dot-axis .dot-track::before { bottom: auto; height: 6px; }
+.dot-axis b { position: absolute; top: 6px; transform: translateX(-50%); color: var(--muted); font-size: 0.74rem;
+  font-weight: 400; }
+.dot-axis em { position: absolute; top: 20px; transform: translateX(-50%); color: var(--ink-2); font-size: 0.74rem;
+  font-style: normal; white-space: nowrap; }
+/* Figures and squares: the markup chart. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.tile { background: var(--wash); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+.tile b { display: block; color: var(--ink); font-size: 1.5rem; font-weight: 720; letter-spacing: -0.02em;
+  line-height: 1.1; }
+.tile span { display: block; color: var(--ink-2); font-size: 0.82rem; margin-top: 4px; line-height: 1.3; }
+.waffle { display: grid; grid-template-columns: repeat(46, minmax(0, 1fr)); gap: 3px; }
+.waffle i { aspect-ratio: 1; border-radius: 3px; background: var(--c); }
+.chart-table { margin-top: 12px; }
+.chart-table summary { color: var(--baby); cursor: pointer; font-size: 0.86rem; width: max-content; }
+.chart-table table { margin-bottom: 0; }
+.chart-tip { position: fixed; z-index: 20; pointer-events: none; max-width: 280px; padding: 8px 11px;
+  background: #0b1520; border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow);
+  font-size: 0.84rem; line-height: 1.4; }
+.chart-tip[hidden] { display: none; }
+.chart-tip strong { display: block; color: var(--ink); font-variant-numeric: tabular-nums; }
+.chart-tip span { color: var(--ink-2); }
+
 @media (max-width: 640px) {
   .nav { gap: 12px; }
   .nav-links { gap: 0; }
   .nav-links a { padding: 6px 9px; white-space: nowrap; font-size: 0.9rem; }
   .brand span { display: none; }
   .doc { padding-top: 48px; }
+  .chart { padding: 16px 14px; }
+  .rings { grid-template-columns: 1fr; }
+  .ring-svg { width: 112px; height: 112px; }
+  .dot-row { grid-template-columns: 1fr; gap: 0; }
+  .dot-name { padding: 6px 0 0; }
+  .dot-axis .dot-name { display: none; }
+  .waffle { grid-template-columns: repeat(23, minmax(0, 1fr)); gap: 2px; }
 }
