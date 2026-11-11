@@ -164,3 +164,11 @@ def pay_to(value: Any, net: Optional[str]) -> Optional[str]:
 def version(value: Any) -> Optional[str]:
     text = str(value or "").strip()
     return text if VERSION.match(text) else None
+
+
+URL = re.compile(r"^https?://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?(/[^\s\"'<>\\^`{|}]*)?$")
+
+
+def is_url(value: Any) -> bool:
+    """An http(s) URL with a host name and no spaces, quotes or angle brackets, at most 2048 characters."""
+    return isinstance(value, str) and len(value) <= 2048 and bool(URL.match(value))

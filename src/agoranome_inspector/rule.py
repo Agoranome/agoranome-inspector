@@ -47,10 +47,12 @@ METHOD = [
     "https, so it was not asked; not_asked when the run reached its per-host cap or time budget before "
     "asking it; other for anything else.",
     "Comparing one listed option: the live options on the same network, asset and scheme are its candidates "
-    "(on the same network and asset, any scheme, when none has the same scheme). Its price is as_listed when "
-    "a candidate asks exactly the listed amount, below_listed when the cheapest asks less, above_listed when "
-    "every candidate asks more. Its pay_to is as_listed when a candidate pays the listed address, different "
-    "when none does, not_listed when the option names no address.",
+    "(on the same network and asset, any scheme, when none has the same scheme). Its price is above_listed when "
+    "any candidate asks more than every amount the listing states for that network, asset and scheme (a buyer "
+    "agent may be asked to pay it), else as_listed when a candidate asks exactly the listed amount, else "
+    "below_listed when the cheapest asks less. Its pay_to is as_listed when every candidate pays an address the "
+    "listing states for that network, asset and scheme, different when any does not, not_listed when the "
+    "option names no address.",
     "price of the row: listed_option_missing when no listed option has a candidate; not_listed when the "
     "listing states no usable price; else above_listed when any compared option is above_listed, else "
     "below_listed when any is below_listed, else as_listed.",
@@ -118,10 +120,20 @@ def _candidates(option: Dict[str, Any], live: List[Dict[str, Any]]) -> List[Dict
     return strict or same
 
 
-def _compare(option: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _compare(option: Dict[str, Any], candidates: List[Dict[str, Any]],
+             group: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """One listed option against its live candidates. `group` is every listed option of the same network, asset
+    and scheme: a live candidate the group does not list (a higher amount, or another address) is one a buyer
+    agent may be asked to pay, so it counts even when another candidate matches the listing."""
     amount = int(option["amount"])
+    listed_amounts = {int(o["amount"]) for o in group}
+    listed_to = {o["pay_to"] for o in group if o.get("pay_to")}
+    hidden_higher = [c for c in candidates if int(c["amount"]) > max(listed_amounts)]
     at = [c for c in candidates if int(c["amount"]) == amount]
-    if at:
+    if hidden_higher:
+        price = "above_listed"
+        at = hidden_higher
+    elif at:
         price = "as_listed"
     else:
         cheapest = int(candidates[0]["amount"])
@@ -129,10 +141,12 @@ def _compare(option: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Dict[s
         at = [c for c in candidates if int(c["amount"]) == cheapest]
     if not option.get("pay_to"):
         pay_to = "not_listed"
-    elif any(c["pay_to"] == option["pay_to"] for c in candidates):
+    elif all(c["pay_to"] in listed_to for c in candidates):
         pay_to = "as_listed"
     else:
         pay_to = "different"
+        unlisted = [c for c in at if c["pay_to"] not in listed_to]
+        at = unlisted or at
     asked = next((c for c in at if c["pay_to"] == option.get("pay_to")), at[0])
     return {"price": price, "pay_to": pay_to, "asked": asked}
 
@@ -145,8 +159,12 @@ def _once(listed: List[Dict[str, Any]], seen: Dict[str, Any]) -> Dict[str, Any]:
                                    o.get("pay_to") or ""))
     if not stated:
         return {"price": "not_listed", "pay_to": "not_listed", "asked": _option(live[0]), "differs": []}
-    compared = [(option, _compare(option, cands)) for option in stated for cands in [_candidates(option, live)]
-                if cands]
+    def group(option: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return [o for o in stated if (o["network"], o["asset"], o.get("scheme") or "")
+                == (option["network"], option["asset"], option.get("scheme") or "")]
+
+    compared = [(option, _compare(option, cands, group(option))) for option in stated
+                for cands in [_candidates(option, live)] if cands]
     if not compared:
         return {"price": "listed_option_missing", "pay_to": "listed_option_missing", "asked": _option(live[0]),
                 "differs": []}

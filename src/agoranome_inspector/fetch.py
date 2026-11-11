@@ -23,6 +23,7 @@ redirect is followed, proxy settings are ignored and at most `max_bytes` of the 
 import ipaddress
 import socket
 import time
+import zlib
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import SplitResult, urlsplit, urlunsplit
@@ -114,7 +115,7 @@ class SafeFetcher:
         ip_host = f"[{addr}]" if ":" in addr else addr
         netloc = ip_host if port == 443 else f"{ip_host}:{port}"
         pinned = urlunsplit(("https", netloc, parts.path or "/", parts.query, ""))
-        headers = {"User-Agent": self.user_agent, "Accept": "application/json",
+        headers = {"User-Agent": self.user_agent, "Accept": "application/json", "Accept-Encoding": "identity",
                    "Host": host if port == 443 else f"{host}:{port}"}
         try:
             with httpx.Client(transport=self.transport, timeout=self.timeout, follow_redirects=False,
@@ -124,11 +125,29 @@ class SafeFetcher:
                     body = bytearray()
                     truncated = False
                     give_up = time.monotonic() + 2 * self.timeout
-                    for chunk in resp.iter_bytes():
-                        body.extend(chunk)
-                        if len(body) > self.max_bytes or time.monotonic() > give_up:
-                            truncated = True
-                            break
+                    # Raw bytes, decoded here with a bound: a small compressed answer cannot become a huge one.
+                    encoding = resp.headers.get("content-encoding", "").strip().lower()
+                    decoder = (zlib.decompressobj(zlib.MAX_WBITS | 32) if encoding in ("gzip", "x-gzip", "deflate")
+                               else None)
+                    readable = decoder is not None or encoding in ("", "identity")
+                    if resp.is_stream_consumed:     # already in memory (a transport that buffers): decoded
+                        chunks, decoder, readable = iter([resp.content]), None, True
+                    else:
+                        chunks = resp.iter_raw()
+                    try:
+                        for chunk in chunks:
+                            if readable:
+                                room = self.max_bytes + 1 - len(body)
+                                piece = decoder.decompress(chunk, room) if decoder else chunk
+                                body.extend(piece)
+                                if decoder is not None and decoder.unconsumed_tail:
+                                    truncated = True
+                                    break
+                            if len(body) > self.max_bytes or time.monotonic() > give_up:
+                                truncated = True
+                                break
+                    except zlib.error:
+                        body, truncated = bytearray(), True
                     return Fetched(url=url, method=method, status=resp.status_code,
                                    headers={k.lower(): v for k, v in resp.headers.items()},
                                    body=bytes(body[: self.max_bytes]), truncated=truncated,

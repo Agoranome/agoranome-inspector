@@ -142,7 +142,7 @@ def _b64url_json(text: Optional[str]) -> Optional[Dict[str, Any]]:
     try:
         raw = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
         data = json.loads(raw, parse_float=str)
-    except (binascii.Error, ValueError, UnicodeDecodeError):
+    except (binascii.Error, ValueError, UnicodeDecodeError, RecursionError):
         return None
     return data if isinstance(data, dict) else None
 
@@ -221,7 +221,7 @@ def listings(catalog: Dict[str, Any]) -> Dict[str, Any]:
                 skipped["path_needs_parameters"] += 1
                 continue
             url = base + (path if path.startswith("/") else "/" + path)
-            if not url.startswith("https://"):
+            if not networks.is_url(url) or not url.startswith("https://"):
                 skipped["not_https"] += 1
                 continue
             method = (_text(endpoint.get("method")) or "GET").upper()
@@ -326,6 +326,8 @@ CSV_COLUMNS = ["resource", "http_method", "url", "host", "service", "category", 
 
 
 def to_csv(sheet: Dict[str, Any]) -> str:
+    from agoranome_inspector import sheet as sheet_lib
+
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
     writer.writerow(CSV_COLUMNS)
@@ -334,7 +336,7 @@ def to_csv(sheet: Dict[str, Any]) -> str:
         listed = (r.get("listed") or [None])[0] or {}
         asked = verdict.get("asked") or {}
         matches = verdict.get("matches_listing")
-        writer.writerow([
+        writer.writerow([sheet_lib.cell(v) for v in [
             r["resource"], r.get("http_method") or "", r.get("url") or "", r["host"], r.get("service") or "",
             r["category"], verdict["answer"], verdict.get("price") or "", verdict.get("pay_to") or "",
             "" if matches is None else str(matches).lower(),
@@ -343,5 +345,5 @@ def to_csv(sheet: Dict[str, Any]) -> str:
             asked.get("method") or "", asked.get("currency") or "", asked.get("amount") or "",
             asked.get("recipient") or "", str(bool(seen.get("also_x402"))).lower(), seen.get("status") or "",
             seen.get("at") or "", leaf_hash(r),
-        ])
+        ]])
     return out.getvalue()

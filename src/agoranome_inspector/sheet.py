@@ -132,6 +132,12 @@ CSV_COLUMNS = ["resource", "host", "category", "answer", "price", "pay_to", "mat
                "asked_amount", "asked_usd", "asked_pay_to", "fair_offer", "status", "seen_at", "leaf"]
 
 
+def cell(value: Any) -> str:
+    """A CSV cell that a spreadsheet will not run as a formula."""
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
 def to_csv(sheet: Dict[str, Any]) -> str:
     if market_of(sheet) == "mpp":
         from agoranome_inspector import mpp
@@ -145,7 +151,7 @@ def to_csv(sheet: Dict[str, Any]) -> str:
         listed = (r.get("listed") or [None])[0] or {}
         asked = verdict.get("asked") or {}
         matches = verdict.get("matches_listing")
-        writer.writerow([
+        writer.writerow([cell(v) for v in [
             r["resource"], r["host"], r["category"], verdict["answer"], verdict.get("price") or "",
             verdict.get("pay_to") or "", "" if matches is None else str(matches).lower(), verdict.get("network") or "",
             listed.get("network") or "", listed.get("asset") or "", listed.get("amount") or "",
@@ -155,5 +161,5 @@ def to_csv(sheet: Dict[str, Any]) -> str:
             networks.usd(asked.get("network"), asked.get("asset"), asked.get("amount")) or "",
             asked.get("pay_to") or "", seen.get("fair_offer") or "", seen.get("status") or "", seen.get("at") or "",
             leaf_hash(r),
-        ])
+        ]])
     return out.getvalue()

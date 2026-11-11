@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from agoranome_inspector import networks
 from agoranome_inspector.canonical import digest
 from agoranome_inspector.probe import options
 
@@ -71,6 +72,8 @@ def _int(value: Any) -> int:
 def normalize(item: Dict[str, Any]) -> Dict[str, Any]:
     """One index item, reduced to what the inspector reads."""
     resource = str(item.get("resource") or "").strip()
+    if not networks.is_url(resource):
+        resource = ""          # not a URL: never on the sheet, so nothing else a seller wrote there is signed
     host = (urlparse(resource).hostname or "").lower()
     quality = item.get("quality") or {}
     tags = [str(t) for t in item.get("tags") or []]

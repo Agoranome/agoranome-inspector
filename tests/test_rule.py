@@ -52,9 +52,15 @@ def test_above_listed_does_not_match():
     assert (v["price"], v["matches_listing"]) == ("above_listed", False)
 
 
-def test_cheapest_live_option_is_compared():
+def test_a_higher_price_beside_the_listed_one_counts():
+    # The listed price is offered, but so is a higher one the listing never states: an agent may be asked for it.
     v = judge([o("5000")], seen(o("9000"), o("5000")))
-    assert v["price"] == "as_listed"
+    assert (v["price"], v["matches_listing"], v["asked"]["amount"]) == ("above_listed", False, "9000")
+
+
+def test_tiers_the_listing_states_are_as_listed():
+    v = judge([o("1000"), o("2000")], seen(o("1000"), o("2000")))
+    assert (v["price"], v["matches_listing"]) == ("as_listed", True)
 
 
 def test_different_pay_to_does_not_match():
@@ -107,9 +113,14 @@ def test_a_scheme_missing_live_falls_back_to_the_network_and_asset():
     assert v["price"] == "as_listed"
 
 
-def test_pay_to_matches_on_any_candidate():
+def test_an_unlisted_address_beside_the_listed_one_counts():
     v = judge([o("1000")], seen(o("1000", pay_to=B), o("1000", pay_to=A)))
-    assert (v["pay_to"], v["asked"]["pay_to"]) == ("as_listed", A)
+    assert (v["pay_to"], v["asked"]["pay_to"], v["matches_listing"]) == ("different", B, False)
+
+
+def test_addresses_the_listing_states_are_as_listed():
+    v = judge([o("1000"), o("1000", pay_to=B)], seen(o("1000", pay_to=B), o("1000", pay_to=A)))
+    assert v["pay_to"] == "as_listed"
 
 
 def test_differs_names_each_option_that_differs():

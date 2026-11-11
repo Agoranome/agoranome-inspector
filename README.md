@@ -69,10 +69,11 @@ function of the other two, so anyone can judge a row again.
   https (so it was not asked), `not_asked` when the run reached its per-host cap or time budget first, and
   `other` for anything else.
 - **Comparing one listed option.** Its candidates are the live options on the same network, asset and scheme
-  (on the same network and asset, any scheme, when none has the same scheme). Its price is `as_listed` when a
-  candidate asks exactly the listed amount, `below_listed` when the cheapest asks less, `above_listed` when every
-  candidate asks more. Its pay-to is `as_listed` when a candidate pays the listed address, `different` when none
-  does.
+  (on the same network and asset, any scheme, when none has the same scheme). Its price is `above_listed` when any
+  candidate asks more than every amount the listing states for that network, asset and scheme, because a buyer
+  agent may be asked to pay it; else `as_listed` when a candidate asks exactly the listed amount; else
+  `below_listed`. Its pay-to is `as_listed` when every candidate pays an address the listing states there,
+  `different` when any does not.
 - **price of the row.** `listed_option_missing` when no listed option has a candidate, `not_listed` when the
   listing states no usable price, else `above_listed` when any compared option is above, else `below_listed`
   when any is below, else `as_listed`.
@@ -94,6 +95,14 @@ function of the other two, so anyone can judge a row again.
 
 A rule never changes once a sheet is published under it. A new rule gets a new name, and each sheet names the
 rule it was judged by, so an old sheet always verifies under its own rule.
+
+### What the sheet cannot see
+
+- **What a paying buyer is asked.** An endpoint can tell the inspector apart (its User-Agent says what it is, and
+  it runs from GitHub's addresses) and answer it differently. The sheet records what the endpoint answered the
+  inspector, unpaid. Paid checks and amounts read from settled payments are later phases.
+- **A price set by method.** An x402 endpoint is asked with GET, and with POST only when GET does not answer 402.
+- **A seller that changes its answer on every ask** gets `varies`, which is published but never `false`.
 
 ### What the sheet does not publish
 

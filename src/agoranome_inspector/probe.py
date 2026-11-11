@@ -47,7 +47,7 @@ def _b64_json(text: str) -> Any:
     for decode in (base64.b64decode, base64.urlsafe_b64decode):
         try:
             return json.loads(decode(padded.encode("ascii")))
-        except (binascii.Error, ValueError, UnicodeDecodeError):
+        except (binascii.Error, ValueError, UnicodeDecodeError, RecursionError):
             continue
     raise ValueError("not base64 JSON")
 
@@ -64,7 +64,7 @@ def read_offer(fetched: Fetched) -> Tuple[Optional[Dict[str, Any]], Optional[str
         return (offer if isinstance(offer, dict) else None), "header", header.encode("utf-8", "replace")
     try:
         body = json.loads(fetched.body or b"{}")
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, RecursionError):
         return None, None, None
     if isinstance(body, dict) and body.get("accepts"):
         return body, "body", fetched.body
