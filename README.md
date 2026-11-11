@@ -279,6 +279,25 @@ longer lists is named in the next entry's `missing`, so none can be quietly remo
 against the pick table of the sheet it names, and with `--chain RPC` reads its payment again on Base. Reports are
 signs, not verdicts: no rule counts them yet, and pick-1 doesn't.
 
+## The record that travels
+
+A seller's history on the sheets, in one file it can carry anywhere: to a marketplace listing, a buyer, or a grant
+reviewer. `agoranome-inspector record <site> <host> --out record.json` gathers, from every sheet in the book, the
+host's rows with their Merkle proofs and the signed book entries they fold into (the sheets' and the key entries').
+Nothing else is needed to check it:
+
+```
+agoranome-inspector verify-record record.json --key <first key's kid>
+agoranome-inspector verify-record record.json --key <kid> --against https://agoranome.github.io/agoranome-inspector/
+```
+
+The first recomputes each entry's hash, checks its Ed25519 signature by the key in force at its place in the book,
+and folds each row into its sheet's signed root, so a row can't be added, changed, or dropped from a week the
+record shows. The second also checks that each entry still stands at its place in the live book. What a record
+can't show is a week it leaves out: it says how many sheets the book held when it was made (`book.sheets`), so a
+reader can ask for the rest. Rows are what the sheet says, verdicts by the published rules; no grade is added and
+nobody can pay to change one.
+
 ## The published site
 
 Plain files that any static host can serve: `book.jsonl`, `head.json`, `sheets/<id>.json`, `sheets/<id>.csv`,

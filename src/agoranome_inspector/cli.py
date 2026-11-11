@@ -95,6 +95,48 @@ def cmd_verify_receipt(args) -> int:
     return 0 if found["ok"] else 1
 
 
+def cmd_record(args) -> int:
+    """A host's record that travels: its rows on every sheet, with proofs and the signed entries (record.py)."""
+    from agoranome_inspector import record
+
+    found = record.build(args.site, args.host)
+    text = json.dumps(found, indent=1, sort_keys=True) + "\n"
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(json.dumps({"host": found["host"], "weeks": len(found["weeks"]), "sheets": found["book"]["sheets"],
+                          "rows": sum(len(w["rows"]) for w in found["weeks"]), "out": args.out}))
+    else:
+        sys.stdout.write(text)
+    return 0 if found["weeks"] else 2
+
+
+def cmd_verify_record(args) -> int:
+    from agoranome_inspector import record
+    from agoranome_inspector.book import parse
+    from agoranome_inspector.verify import http_get, opener
+
+    raw = sys.stdin.buffer.read() if args.file in (None, "-") else Path(args.file).read_bytes()
+    found = json.loads(raw)
+    problems = record.check(found, pinned_kid=args.key)
+    if not problems and args.against:
+        problems = record.check_against(found, parse(opener(args.against, http_get)("book.jsonl").decode("utf-8")))
+    weeks = found.get("weeks") or []
+    if problems:
+        for p in problems[:20]:
+            print(f"FAIL  {p}")
+        print("NOT VERIFIED")
+        return 1
+    print(f"PASS  {found.get('host')}: {len(weeks)} week(s) of the {found.get('book', {}).get('sheets')} sheets in "
+          f"the book when it was made, {sum(len(w.get('rows') or []) for w in weeks)} row(s), each folded into "
+          f"its sheet's signed root" + (", and every entry still in the live book" if args.against else ""))
+    for w in weeks:
+        s = w.get("summary") or {}
+        print(f"INFO  {w.get('sheet')}: {s.get('rows')} row(s), {s.get('payable_as_listed')} payable as listed, "
+              f"{s.get('payable_not_as_listed')} payable not as listed")
+    print("VERIFIED")
+    return 0
+
+
 def cmd_check_delivery(args) -> int:
     """A paid lab answer's receipt is bound to its result: recompute the SHA-256 of the result's RFC 8785 form."""
     from agoranome_inspector.canonical import jcs, sha256_hex
@@ -406,6 +448,18 @@ def parser() -> argparse.ArgumentParser:
     vr.add_argument("site")
     vr.add_argument("proof", help="the proof's URL or a file")
     vr.set_defaults(func=cmd_verify_receipt)
+
+    rc = sub.add_parser("record", help="a seller's record that travels: its rows on every sheet, with proofs")
+    rc.add_argument("site")
+    rc.add_argument("host")
+    rc.add_argument("--out", help="write it here (default: standard output)")
+    rc.set_defaults(func=cmd_record)
+
+    vrc = sub.add_parser("verify-record", help="check a record from the record alone, with the pinned first key")
+    vrc.add_argument("file", nargs="?", help="the record (default: standard input)")
+    vrc.add_argument("--key", help="the book's first key id, as published")
+    vrc.add_argument("--against", help="also check each entry still stands in this site's live book")
+    vrc.set_defaults(func=cmd_verify_record)
 
     cd = sub.add_parser("check-delivery", help="check a paid lab answer's receipt names the hash of its result")
     cd.add_argument("file", nargs="?", help="the answer's JSON (default: standard input)")
