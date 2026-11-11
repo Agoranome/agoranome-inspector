@@ -25,7 +25,8 @@ The published site is a directory any static host can serve:
   picks/<id>.json       the sheet's pick table: what the fair pick ranks (pick.py)
   pledge.json           the 15% pledge as the lab's ledger states it, from the newest pledge entry
   shelves.json          the shelf report card, from the newest shelf entry
-  index.html            a plain page for people: the newest summary, every sheet, how to verify
+  index.html            the page for people, in agoranome.com's theme: the newest summary, every sheet, how to
+                        verify (style.css and mark.svg beside it, from theme.py)
 
 Nothing published holds a secret or the index's demand counts (unless the sheet was built to show them).
 """
@@ -39,6 +40,7 @@ from agoranome_inspector import changes as changes_lib
 from agoranome_inspector import links as links_lib
 from agoranome_inspector import pick as pick_lib
 from agoranome_inspector import sheet as sheet_lib
+from agoranome_inspector import theme
 from agoranome_inspector.book import Book, entries_of
 from agoranome_inspector.canonical import canonical, sha256_hex
 from agoranome_inspector.keys import Signer
@@ -435,26 +437,21 @@ def write_index(site: Path, book: Book) -> None:
         f"<tr><td>{e(sheet_lib.market_of(x['body']))}</td><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
         f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a></td>"
         f"<td><code>{e(x['body']['root'] or '')}</code></td></tr>" for x in reversed(sheets))
-    page = f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agoranome: the open sheet of machine payment offers</title>
-<style>body{{font:16px/1.5 system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}}
-table{{border-collapse:collapse;width:100%}}td,th{{text-align:left;padding:.3rem .5rem;border-bottom:1px solid #ddd}}
-code{{font-size:.8em;word-break:break-all}}pre{{background:#f4f4f4;padding:.75rem;overflow-x:auto}}</style></head>
-<body>
+    body = f"""<p class="eyebrow">Agoranome inspector</p>
 <h1>The open sheet</h1>
-<p>Paid endpoints that machines buy from, asked for their offer without paying and judged by a published rule. Free,
-under {e(LICENCE)}. Every figure here is signed in the open book and can be checked with one command.</p>
+<p class="lead">Paid endpoints that machines buy from, asked for their offer without paying and judged by a published
+rule. Free, under {e(LICENCE)}. Every figure here is signed in the open book.</p>
 {sections}<h2>Every sheet</h2>
 <table><tr><th>Market</th><th>Sheet</th><th>Rows</th><th>Files</th><th>Merkle root</th></tr>{rows}</table>
-<h2>Check it yourself</h2>
-<pre>pip install "git+https://github.com/Agoranome/agoranome-inspector"
-agoranome-inspector verify &lt;this site's URL&gt; --key={e(entries[0]['body']['key']['kid'])}</pre>
-<p>The book: <a href="book.jsonl">book.jsonl</a> ({len(entries):,} entries). Newest entry:
-<code>{e(str(entries[-1]['seq']))}:{e(entries[-1]['hash'])}</code>. Keep it, and check later that the book still holds
-it with <code>--since</code>.</p>
-</body></html>
-"""
+<h2>The open book</h2>
+<p>Every figure above is an entry in <a href="book.jsonl">the book</a> ({len(entries):,} entries), signed with the key
+<code>{e(entries[0]['body']['key']['kid'])}</code>. The newest entry is
+<code>{e(str(entries[-1]['seq']))}:{e(entries[-1]['hash'])}</code>.</p>"""
+    # agoranome.com's theme around the same content (Shariar 2026-11-11: "this should be theme, to match rest of the
+    # website"); style.css and mark.svg are written beside the page.
+    theme.write_assets(site)
+    page = theme.page("Agoranome: the open sheet of machine payment offers", body,
+                      best_buys=bool(entries_of("bestbuy", entries)))
     (site / "index.html").write_text(page, encoding="utf-8")
 
 

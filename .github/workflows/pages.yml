@@ -1,0 +1,56 @@
+name: Rebuild pages
+
+# Rewrites the pages people read (index.html, best-buy/index.html) and their theme (style.css, mark.svg) on the
+# published site from the book as it stands, when the look changes between weekly runs. Started by hand from the
+# Actions tab, and on its own when the theme or the page code changes on main. It signs nothing, needs no secret and
+# never touches the book: the pages only show what the book's entries already say. The weekly run writes the same
+# pages each Monday.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - src/agoranome_inspector/theme.py
+      - src/agoranome_inspector/publish.py
+      - src/agoranome_inspector/bestbuy.py
+
+permissions:
+  contents: write
+
+# The same group as the weekly run, so the two never write gh-pages at once.
+concurrency:
+  group: weekly-sheet
+  cancel-in-progress: false
+
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - name: Rewrite the pages
+        env:
+          INSPECTOR_FIRST_KID: ${{ vars.INSPECTOR_FIRST_KID }}
+        run: |
+          if ! git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            echo "::notice::No published site yet; nothing to rewrite."
+            exit 0
+          fi
+          git config user.name "agoranome-inspector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --depth=1 origin "+refs/heads/gh-pages:refs/remotes/origin/gh-pages"
+          git worktree add -B gh-pages site origin/gh-pages
+          agoranome-inspector pages site
+          agoranome-inspector verify site --all ${INSPECTOR_FIRST_KID:+"--key=$INSPECTOR_FIRST_KID"}
+          cd site
+          git add -A index.html style.css mark.svg best-buy 2>/dev/null || git add -A index.html style.css mark.svg
+          if git diff --cached --quiet; then
+            echo "::notice::The pages were already up to date."
+            exit 0
+          fi
+          git commit -q -m "Pages $(date -u +%Y-%m-%d)"
+          git push origin gh-pages

@@ -562,6 +562,34 @@ def cmd_disputes(args) -> int:
     return 0
 
 
+def cmd_pages(args) -> int:
+    """Rewrite the pages people read (index.html, best-buy/index.html) and the theme beside them from the book as it
+    stands. Nothing is signed and the book is not touched: the pages only show what the book's entries already say.
+    For a change of look between weekly runs (pages.yml)."""
+    from agoranome_inspector import bestbuy
+    from agoranome_inspector.book import Book, entries_of
+    from agoranome_inspector.canonical import sha256_hex
+    from agoranome_inspector.publish import BOOK, write_index
+
+    site = Path(args.site)
+    if not (site / BOOK).exists():
+        print(f"error: no book at {site / BOOK}", file=sys.stderr)
+        return 2
+    book = Book(str(site / BOOK))
+    write_index(site, book)
+    out = {"index": (site / "index.html").exists(), "best_buy": False}
+    last = entries_of("bestbuy", book.entries())
+    if last:
+        body = last[-1]["body"]
+        data = (site / body["file"]).read_bytes()
+        if sha256_hex(data) != body["sha256"]:
+            raise RuntimeError(f"{body['file']} does not match the book")
+        (site / "best-buy" / "index.html").write_text(bestbuy.page(json.loads(data), body["file"]), encoding="utf-8")
+        out["best_buy"] = True
+    print(json.dumps(out))
+    return 0
+
+
 def cmd_gates(args) -> int:
     """Read the lab's gates and complete the money gate from the accounts (gates.py). Prints statuses only."""
     import urllib.error
@@ -871,6 +899,10 @@ def parser() -> argparse.ArgumentParser:
     dp.add_argument("--source", default="https://api.agoranome.com/disputes.json")
     dp.add_argument("--key-file")
     dp.set_defaults(func=cmd_disputes)
+
+    pg = sub.add_parser("pages", help="rewrite the pages people read and their theme from the book; signs nothing")
+    pg.add_argument("site")
+    pg.set_defaults(func=cmd_pages)
 
     gt = sub.add_parser("gates", help="the plan's gates from the lab, the money gate completed from the accounts")
     gt.add_argument("site")

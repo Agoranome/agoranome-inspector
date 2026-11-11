@@ -135,19 +135,15 @@ def page(found: Dict[str, Any], file: str) -> str:
                      f"<table><tr><th>Endpoint</th><th>Market</th><th>Price</th><th>Price honesty</th>"
                      f"<th>Settles only on delivery</th><th>Real payers (30 days)</th><th>Repeat payers</th>"
                      f"<th>Buyers' reports</th></tr>{rows}</table>")
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agoranome: best buys by kind of job</title>
-<style>body{{font:16px/1.5 system-ui,sans-serif;max-width:64rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}}
-table{{border-collapse:collapse;width:100%}}td,th{{text-align:left;padding:.3rem .5rem;border-bottom:1px solid #ddd;
-font-size:.9em}}code{{font-size:.85em;word-break:break-all}}</style></head>
-<body>
+    from agoranome_inspector import theme
+
+    body = f"""<p class="eyebrow">Agoranome inspector</p>
 <h1>Best buys, by kind of job</h1>
-<p>For each kind of job, the paid endpoints in the running this week, in the order of the published rule
+<p class="lead">For each kind of job, the paid endpoints in the running this week, in the order of the published rule
 <code>{e(RULE)}</code>: honest on price first, then those that promise to settle only on delivery, then the lower price.
-Beside each, its delivery signs: real and repeat payers read from the Base chain over 30 days (x402 sellers), and what
-paying buyers reported. Signs are shown, never ranked, and no seller can pay for a place. Every row is built from the
-signed open book: <a href="../{e(file)}">the full list</a>, <a href="../index.html">the sheet</a>.</p>
-{''.join(parts)}
-</body></html>
-"""
+</p>
+<p>Beside each, its delivery signs: real and repeat payers read from the Base chain over 30 days (x402 sellers),
+and what paying buyers reported. Signs are shown, never ranked, and no seller can pay for a place. Every row is
+built from the signed open book: <a href="../{e(file)}">the full list</a>, <a href="../index.html">the sheet</a>.</p>
+{''.join(parts)}"""
+    return theme.page("Agoranome: best buys by kind of job", body, depth=1, wide=True, current="best-buy")
