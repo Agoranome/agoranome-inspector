@@ -223,6 +223,81 @@ Figures that fail the first two checks are refused, not signed. The figures are 
 their arithmetic and the transfers, and `verify-receipt` checks any receipt against its month's root. Until a cause
 is named, what is owed is kept and shown as outstanding. The figures are `pledge.json` on the site.
 
+**Small sums, `carry-1`.** One transfer a month costs a fee whatever its size, so a month that leaves under $1 owed
+carries over and shows as `carried`; nothing is carried past the end of a quarter. Over the months the book runs a
+balance of what was owed less what was given: `kept` when it is nothing, `carried` when under $1 inside a quarter,
+`owed` otherwise, and `late` once a cause is named and 45 days have passed since the month (or, for a carried
+month, its quarter) ended. The book refuses figures whose standings don't follow the rule, and `verify` warns of
+a late month.
+
+## The accounts
+
+What Agoranome earns outside x402, in the same book, so the 15% is owed on all of it (`accounts-1`,
+`src/agoranome_inspector/accounts.py`). Each is a `statement` entry naming its kind, payer, month, amount in
+dollars and the SHA-256 of the document behind it (the payout statement, the licence, the award notice), with its
+https address when it is public. The book names every licensee and funder, and what each paid:
+
+| Kind | Earned (counts toward the $47.06 bar) | Pledged |
+| --- | --- | --- |
+| `payout` (a marketplace's payout to Agoranome) | yes | yes |
+| `licence` (a platform licence, at its public list price) | yes | yes |
+| `prize` (a grant with no strings, a prize, a reward) | yes | yes |
+| `grant` (for named public work, paid by milestone) | no | only with the funder's written agreement, whose hash the statement carries |
+| `credit` (cloud or API credit) | no | no |
+
+A grant or a prize goes in only when the funder passed the five tests: a programme with public rules others can
+apply to, no say over a figure, a grade or the method, results that stay open, the amount and each payment in the
+book, and the funder graded like everyone else. A licence names its public list price. Sponsors are not a kind:
+Agoranome takes none. Whether a grant carries the pledge is the concept's proposal, awaiting Shariar's ruling; a
+change would be a new rule, never a quiet edit.
+
+At each month's end, `close` adds a `close` entry (`close-1`): every source for the month (x402 from the newest
+pledge figures, then each statement) with what each owes, and their sum as the month's total owed. The pledge's
+standing then runs on that total. Statements go in through the workflow `Accounts` (Actions tab, "Run workflow",
+with the statement's fields), which also closes the past months on the first three days of each month. The
+verifier rebuilds each statement and close; the accounts are `accounts.json` on the site.
+
+**The gates.** The plan's stop rules are tracked by the lab at `https://api.agoranome.com/gates.json`: one outside
+sign of use within 60 days of reaching the shelves, a data good retired under 10 payers at day 60, earned money
+covering $47.06 a month by day 90, and the ask test. The lab sees only its own receipts, so each weekly run,
+`gates <site>` keeps the lab's statuses and completes the money gate from the newest closed month, every earned
+source together. A grant is not earned and never passes it. A `gates` entry is added only when something changed;
+the verifier recomputes the money figure, and the reading is `gates.json` on the site.
+
+## Signs from the chain
+
+Who comes back, read from Base and never from a seller's words (`signs-1`, `src/agoranome_inspector/signs.py`).
+With a Base RPC address (the repository secret `BASE_RPC`), the weekly run reads the USDC transfers of the last 30
+days into each pay-to on the newest x402 sheet and counts, for each host: payers, payers that came back (sessions
+more than 900 blocks, about 30 minutes, apart), payers that paid five or more other hosts within an hour of paying
+it (a sweep, not a choice), and payments from the seller's own addresses. An address named by more than one host
+is a platform's and counted apart; a host with more than 20,000 transfers in the window is marked busy and not
+read. `signs/<id>.json` holds counts only: no payer is named, and Coinbase's Bazaar figures are never used. The
+verifier checks the file against its sheet and, with `--chain`, reads three hosts again.
+
+Signs are facts beside a row. No verdict and no rank under `pick-1` or `best-buy-1` uses them; a later rule will say
+so before it does.
+
+## The best buys
+
+Per category on the newest sheets, the ten listings an agent can pay that rank first by `pick-1`'s order with no
+job to match: honest on price, then a Fair Offer block, then the lower price (`best-buy-1`,
+`src/agoranome_inspector/bestbuy.py`). Each row shows its signs from the chain and its buyers' report counts beside
+it, unranked. The weekly run writes `best-buy/<date>.json` and a page; the verifier rebuilds both from the sheets.
+
+## Sellers' disputes
+
+A seller that finds its row wrong says so at the lab (`POST https://api.agoranome.com/disputes`): the row's
+resource, the sheet, the field (`price`, `pay_to`, `answer`, `category`, `fair_offer` or `signs`), what it says the
+field should be as one short token, and an optional https link to its evidence, signed (EIP-191) by the address the
+row asks payment to. `GET /disputes/message` gives the exact words to sign. No free text is taken.
+
+Each weekly run, `disputes <site>` copies new disputes into a `dispute` entry after checking the signer against the
+row on that sheet's pick table and, with `eth-account` installed, the signature. The operator answers each one,
+once, with the workflow `Answer a dispute` or `answer <site> ID --outcome upheld|not_upheld --reason TEXT`: upheld
+means the next sheet or a correction puts the row right. No model reads a dispute or writes an answer.
+`disputes.json` on the site lists every dispute with its answer.
+
 ## The open book
 
 A JSON Lines file, `book.jsonl`, one entry a line, that only grows:
@@ -301,7 +376,9 @@ nobody can pay to change one.
 ## The published site
 
 Plain files that any static host can serve: `book.jsonl`, `head.json`, `sheets/<id>.json`, `sheets/<id>.csv`,
-`changes/<id>.json`, `links/<id>.json`, `picks/<id>.json`, `shelves.json`, `pledge.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
+`changes/<id>.json`, `links/<id>.json`, `picks/<id>.json`, `signs/<id>.json`, `best-buy/<date>.json`,
+`shelves.json`, `pledge.json`, `accounts.json`, `disputes.json`, `gates.json` and `index.html`. A sheet's id
+names its market and day (`x402-2026-11-16`). Each change log
 compares a sheet with the sheet just before it in the same market, and the verifier checks that it does. With no
 `--id`, `verify` checks the newest sheet of each market.
 
@@ -315,6 +392,14 @@ agoranome-inspector shelf site/                           # grade the shelves fr
 agoranome-inspector anchor-lab site/                      # the lab's receipt roots and the pledge's figures
 agoranome-inspector reports site/                         # buyers' reports, each tied to a payment on Base
 agoranome-inspector check-delivery answer.json            # a paid lab answer's receipt names its result's hash
+agoranome-inspector signs site/ --rpc "$BASE_RPC"         # who comes back, read from Base (counts only)
+agoranome-inspector disputes site/                        # sellers' disputes, each signed by the row's pay-to
+agoranome-inspector best-buy site/                        # the best buys per category
+agoranome-inspector statement site/ --type payout ...     # money earned outside x402, with its document's hash
+agoranome-inspector close site/                           # each finished month's sources and total owed
+agoranome-inspector gates site/                           # the plan's gates, the money gate from the accounts
+agoranome-inspector answer site/ d-... --outcome not_upheld --reason "..."
+agoranome-inspector verify site/ --all --strict           # warnings (a late pledge month) fail too
 ```
 
 `run` is polite by default: one request at a time to any host, half a second between a host's listings, at most
@@ -339,6 +424,8 @@ It needs, once, in the repository's settings:
    then refuses to publish a book whose first key is any other.
 3. **Pages**: source "Deploy from a branch", branch `gh-pages`, folder `/ (root)`. The branch exists after the first
    run. The site is then at `https://agoranome.github.io/agoranome-inspector/`.
+4. **Secrets and variables, Actions, secret `BASE_RPC`** (optional): a Base mainnet RPC address for the signs from
+   the chain. Without it the run skips them and says so.
 
 Each market in the repository variable `RUN_MARKETS` (`x402 mpp` when it is not set; `x402` for x402 alone) runs
 in turn into the same book. A market whose run fails publishes nothing that week; the others are still published,

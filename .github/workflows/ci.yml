@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,eth]"
       - name: Run the tests
         run: pytest -q -p no:cacheprovider
       - name: Verify the demo site with the one command

@@ -1,0 +1,77 @@
+name: Accounts
+
+# On the first days of each month: close the month before in the open book, every source's earnings and what the 15%
+# pledge owes. By hand from the Actions tab: post one statement (a merchant's payout, a platform licence, a prize, a
+# grant for named work, or a credit), then close. Only the document's SHA-256 goes in the book; keep the document.
+# Nothing runs until the INSPECTOR_SIGNING_KEY secret is set. No model is used.
+on:
+  schedule:
+    - cron: "41 7 1-3 * *"
+  workflow_dispatch:
+    inputs:
+      type:
+        description: "Statement type (leave empty to close months only)"
+        type: choice
+        options: ["", payout, licence, prize, grant, credit]
+        default: ""
+      from:
+        description: "Who paid: the merchant, licensee or funder"
+        type: string
+      period:
+        description: "The month the money arrived, YYYY-MM"
+        type: string
+      amount_usd:
+        description: "What reached Agoranome, in US dollars"
+        type: string
+      document_sha256:
+        description: "SHA-256 of the statement, licence or award notice"
+        type: string
+      document_url:
+        description: "Where the document is public, if it is (https)"
+        type: string
+      passes_grant_tests:
+        description: "A grant or prize: the funder passed the five tests"
+        type: boolean
+        default: false
+      note:
+        description: "A short note for the book (at most 280 characters)"
+        type: string
+      more:
+        description: "Other flags, one word each, e.g. --currency EUR --amount 5000 --list-price-usd 499"
+        type: string
+      close_period:
+        description: "Close this month again (YYYY-MM), after a late statement"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-sheet      # one writer of the book at a time, with the weekly run
+  cancel-in-progress: false
+
+jobs:
+  accounts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ".[eth]"
+      - name: Post and close, verify and publish
+        env:
+          INSPECTOR_SIGNING_KEY: ${{ secrets.INSPECTOR_SIGNING_KEY }}
+          INSPECTOR_FIRST_KID: ${{ vars.INSPECTOR_FIRST_KID }}
+          STATEMENT_TYPE: ${{ github.event.inputs.type }}
+          STATEMENT_FROM: ${{ github.event.inputs.from }}
+          STATEMENT_PERIOD: ${{ github.event.inputs.period }}
+          STATEMENT_AMOUNT_USD: ${{ github.event.inputs.amount_usd }}
+          STATEMENT_DOCUMENT_SHA256: ${{ github.event.inputs.document_sha256 }}
+          STATEMENT_DOCUMENT_URL: ${{ github.event.inputs.document_url }}
+          STATEMENT_GRANT_TESTS: ${{ github.event.inputs.passes_grant_tests }}
+          STATEMENT_NOTE: ${{ github.event.inputs.note }}
+          STATEMENT_MORE: ${{ github.event.inputs.more }}
+          CLOSE_PERIOD: ${{ github.event.inputs.close_period }}
+        run: bash scripts/accounts.sh
