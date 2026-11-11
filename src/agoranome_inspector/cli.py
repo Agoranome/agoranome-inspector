@@ -50,7 +50,9 @@ from typing import List, Optional
 
 from agoranome_inspector import __version__
 
-DEFAULT_SITE = "https://agoranome.github.io/agoranome-inspector/"
+# Our own address (11 Nov 2026), served by GitHub Pages from the gh-pages branch; the old
+# agoranome.github.io/agoranome-inspector/ address forwards here.
+DEFAULT_SITE = "https://inspector.agoranome.com/"
 
 
 def _key(args) -> "object":

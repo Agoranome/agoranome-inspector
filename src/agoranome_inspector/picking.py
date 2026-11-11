@@ -26,7 +26,9 @@ from agoranome_inspector.book import check_chain, entries_of, parse
 from agoranome_inspector.canonical import sha256_hex
 from agoranome_inspector.verify import _safe, http_get, opener
 
-SITE = "https://agoranome.github.io/agoranome-inspector/"
+SITE = "https://inspector.agoranome.com/"
+# The address Pages served before it had its own domain; it forwards to SITE.
+OLD_SITE = "https://agoranome.github.io/agoranome-inspector/"
 # The same files straight from the branch Pages serves, for when Pages is not answering.
 RAW = "https://raw.githubusercontent.com/Agoranome/agoranome-inspector/gh-pages/"
 
@@ -44,7 +46,7 @@ def _read_book(site: str, get: Callable[[str], bytes]):
         read = opener(site, get)
         return read, parse(read("book.jsonl").decode("utf-8"))
     except Exception:
-        if site.rstrip("/") + "/" != SITE:
+        if site.rstrip("/") + "/" not in (SITE, OLD_SITE):
             raise
         read = opener(RAW, get)
         return read, parse(read("book.jsonl").decode("utf-8"))
