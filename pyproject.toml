@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agoranome-inspector"
+version = "0.1.0"
+description = "The public inspector of the x402 market: a sheet of every listing with real demand, a change log, and an open book that proves them."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [{name = "Kamkar Foundation, LLC"}]
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.26",
+    "cryptography>=42",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# The weekly note, the run doctor and the monthly red-team (see src/agoranome_inspector/models.py).
+models = ["anthropic>=2.8"]
+
+[project.scripts]
+agoranome-inspector = "agoranome_inspector.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

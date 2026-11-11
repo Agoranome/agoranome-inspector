@@ -1,0 +1,51 @@
+name: Monthly red-team
+
+# On the 2nd of each month, a model reads the inspector's own code (src/, scripts/, the workflows) for ways a
+# seller, a network or a mistake could make a sheet wrong or the run unsafe. Its findings are sealed to the
+# signing key and put in an issue; `agoranome-inspector reveal --key-file ...` reads them. The model never sees a
+# sheet or a seller's answer, and the call is under the month's cap (src/agoranome_inspector/models.py). It does
+# nothing until both the ANTHROPIC_API_KEY and INSPECTOR_SIGNING_KEY secrets are set.
+on:
+  schedule:
+    - cron: "41 7 2 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  red-team:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: model-spend
+      cancel-in-progress: false
+    env:
+      HAS_KEYS: ${{ secrets.ANTHROPIC_API_KEY != '' && secrets.INSPECTOR_SIGNING_KEY != '' }}
+      INSPECTOR_SPEND_LEDGER: spend/spend.jsonl
+      INSPECTOR_MODEL: ${{ vars.INSPECTOR_MODEL }}
+    steps:
+      - if: env.HAS_KEYS != 'true'
+        run: echo "::notice::ANTHROPIC_API_KEY or INSPECTOR_SIGNING_KEY is not set, so nothing was asked."
+      - uses: actions/checkout@v4
+        if: env.HAS_KEYS == 'true'
+      - uses: actions/setup-python@v5
+        if: env.HAS_KEYS == 'true'
+        with:
+          python-version: "3.12"
+      - if: env.HAS_KEYS == 'true'
+        run: pip install ".[models]"
+      - name: Read the model spend ledger
+        if: env.HAS_KEYS == 'true'
+        run: bash scripts/spend.sh pull
+      - name: Red-team
+        if: env.HAS_KEYS == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          INSPECTOR_SIGNING_KEY: ${{ secrets.INSPECTOR_SIGNING_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: agoranome-inspector red-team --repo .
+      - name: Save the model spend ledger
+        if: always() && env.HAS_KEYS == 'true'
+        run: bash scripts/spend.sh push

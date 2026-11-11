@@ -1,0 +1,42 @@
+name: Trial run (publishes nothing)
+
+# A run against the live market that keeps no file and names no seller in its log: it reads the index, asks a
+# sample of listings without paying, signs a sheet into a temporary directory with a throwaway key and verifies
+# it, then prints counts. Start it from the Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      sample:
+        description: "Listings to ask"
+        default: "1500"
+      budget:
+        description: "Seconds for the asking"
+        default: "900"
+  push:
+    branches: [claude/project-thread-9rcqkd]
+
+permissions:
+  contents: read
+
+jobs:
+  trial:
+    # On the working branch, only a commit whose message says [trial] (or [trial mpp]) starts it.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[trial')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Trial
+        # A commit saying [trial mpp] runs the MPP trial alone.
+        if: ${{ !contains(github.event.head_commit.message, '[trial mpp]') }}
+        env:
+          SAMPLE: ${{ github.event.inputs.sample || '1500' }}
+          BUDGET: ${{ github.event.inputs.budget || '900' }}
+        run: python scripts/trial.py --sample "$SAMPLE" --budget "$BUDGET"
+      - name: Trial (MPP)
+        if: always()
+        run: python scripts/trial.py --market mpp --sample 1000 --per-host 3 --budget 600
