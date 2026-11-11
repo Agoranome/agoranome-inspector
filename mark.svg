@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Agoranome">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a9ddf5"/>
+      <stop offset="0.55" stop-color="#89cff0"/>
+      <stop offset="1" stop-color="#c4b5fd"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#0f1a26"/>
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15.25" fill="none" stroke="#89cff0" stroke-opacity=".28"
+        stroke-width="1.5"/>
+  <g fill="none" stroke="url(#g)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 25 32 14l18 11Z"/>
+    <path d="M19 30v15M28 30v15M36 30v15M45 30v15"/>
+    <path d="M14 50h36"/>
+  </g>
+</svg>
