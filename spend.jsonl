@@ -1,2 +1,4 @@
 {"at": "2026-11-11T17:03:51.706736+00:00", "call": "c32161ae8e2845ca843846a07e12a2ce", "model": "claude-opus-5-5", "month": "2026-11", "state": "reserved", "usd": 0.64489, "use": "run-doctor"}
 {"at": "2026-11-11T17:03:58.912155+00:00", "call": "c32161ae8e2845ca843846a07e12a2ce", "input_tokens": 489, "model": "claude-opus-5-5", "month": "2026-11", "output_tokens": 566, "served_by": "claude-opus-5-5", "state": "settled", "usd": 0.013276, "use": "run-doctor"}
+{"at": "2026-11-11T17:56:46.823369+00:00", "call": "7a572af537454e538aa0b0f2fb469ac1", "model": "claude-opus-5-5", "month": "2026-11", "state": "reserved", "usd": 0.65268, "use": "run-doctor"}
+{"at": "2026-11-11T17:56:55.601756+00:00", "call": "7a572af537454e538aa0b0f2fb469ac1", "input_tokens": 1268, "model": "claude-opus-5-5", "month": "2026-11", "output_tokens": 763, "served_by": "claude-opus-5-5", "state": "settled", "usd": 0.020332, "use": "run-doctor"}
