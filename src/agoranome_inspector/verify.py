@@ -292,7 +292,9 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
 
             fetcher = SafeFetcher()
             if sheet_lib.market_of(sheet) == "mpp":
-                ask = lambda row: mpp.probe(fetcher, row)   # noqa: E731
+                specs = mpp.SpecReader()
+                ask = lambda row: mpp.probe(fetcher, row, example=mpp.example_request(   # noqa: E731
+                    specs.spec(row["host"]), row))
             else:
                 ask = lambda row: probe(fetcher, row["resource"])   # noqa: E731
         report.recheck = recheck(sheet, recheck_n, ask)

@@ -31,8 +31,10 @@ import json
 import re
 import time
 from datetime import datetime, timezone
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, Iterable, List, Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
@@ -175,26 +177,186 @@ def observe(fetched) -> Dict[str, Any]:
             "sha256": sha256_hex(raw) if values else None}
 
 
-def ask(fetcher: SafeFetcher, listing: Dict[str, Any]) -> Dict[str, Any]:
-    """One unpaid request with the listed HTTP method (an empty JSON body for POST)."""
+def ask(fetcher: SafeFetcher, listing: Dict[str, Any], example: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """One unpaid request with the listed HTTP method: with the example request the seller's own OpenAPI document
+    gives, when it gives one, else with no parameters (and an empty JSON body for POST)."""
     method = listing["http_method"]
-    nothing = {"method": method, "status": None, "where": None, "options": [], "also_x402": False, "sha256": None}
+    request = "seller_example" if example else "empty"
+    nothing = {"method": method, "status": None, "where": None, "options": [], "also_x402": False, "sha256": None,
+               "request": request}
     if method not in ASKED_METHODS:
         return {**nothing, "error": "refused"}
+    url = listing["url"]
+    body: Any = {} if method == "POST" else None
+    if example:
+        if example.get("query"):
+            url = url + ("&" if "?" in url else "?") + urlencode(example["query"], doseq=True)
+        if method == "POST" and example.get("json") is not None:
+            body = example["json"]
     try:
-        fetched = fetcher.fetch(listing["url"], method, {} if method == "POST" else None)
+        fetched = fetcher.fetch(url, method, body)
     except FetchError as e:
         return {**nothing, "error": e.kind}
-    return {**observe(fetched), "error": None}
+    return {**observe(fetched), "request": request, "error": None}
 
 
-def probe(fetcher: SafeFetcher, listing: Dict[str, Any], *, retry_pause: float = 2.0,
-          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], str] = _now) -> Dict[str, Any]:
+# --- The seller's own example request ------------------------------------------------------------------------------
+#
+# Many MPP endpoints check the request before they quote a price (a 400 naming a required field), as an endpoint
+# whose price depends on the request must. A buyer agent reads the service's OpenAPI document and sends a valid
+# request; so does the inspector, with the example the seller's own document gives. The example is sent, never
+# published, and nothing is paid, so the endpoint does no paid work.
+
+SPEC_PATH = "/openapi.json"
+MAX_SPEC = 2_000_000
+MAX_EXAMPLE = 16_384
+FILLERS = {"string": "example", "integer": 1, "number": 1, "boolean": False}
+
+
+def _resolve(spec: Dict[str, Any], node: Any, depth: int = 0) -> Any:
+    while isinstance(node, dict) and isinstance(node.get("$ref"), str) and depth < 8:
+        ref = node["$ref"]
+        if not ref.startswith("#/"):
+            return None
+        target: Any = spec
+        for part in ref[2:].split("/"):
+            target = target.get(part.replace("~1", "/").replace("~0", "~")) if isinstance(target, dict) else None
+        node, depth = target, depth + 1
+    return node
+
+
+def _from_schema(spec: Dict[str, Any], schema: Any, depth: int = 0) -> Any:
+    """A value for a schema from its own example, default or first enum value; required properties only."""
+    schema = _resolve(spec, schema)
+    if not isinstance(schema, dict) or depth > 6:
+        return None
+    for key in ("example", "default", "const"):
+        if key in schema:
+            return schema[key]
+    if isinstance(schema.get("examples"), list) and schema["examples"]:
+        return schema["examples"][0]
+    if isinstance(schema.get("enum"), list) and schema["enum"]:
+        return schema["enum"][0]
+    for key in ("allOf", "oneOf", "anyOf"):
+        if isinstance(schema.get(key), list) and schema[key]:
+            if key == "allOf":
+                merged: Dict[str, Any] = {}
+                for part in schema[key]:
+                    value = _from_schema(spec, part, depth + 1)
+                    if isinstance(value, dict):
+                        merged.update(value)
+                return merged
+            return _from_schema(spec, schema[key][0], depth + 1)
+    kind = schema.get("type")
+    if kind == "object" or "properties" in schema:
+        props = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        out = {}
+        for name in schema.get("required") or []:
+            if isinstance(name, str):
+                out[name] = _from_schema(spec, props.get(name), depth + 1)
+        return out
+    if kind == "array":
+        item = _from_schema(spec, schema.get("items"), depth + 1)
+        return [] if item is None else [item]
+    return FILLERS.get(kind) if isinstance(kind, str) else None
+
+
+def operation(spec: Any, listing: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    paths = spec.get("paths") if isinstance(spec, dict) else None
+    if not isinstance(paths, dict):
+        return None
+    path = urlsplit(listing["url"]).path or "/"
+    matches = [k for k in paths if isinstance(k, str) and (k == path or (k != "/" and path.endswith(k)))]
+    for key in sorted(matches, key=len, reverse=True):
+        item = _resolve(spec, paths[key])
+        op = item.get(listing["http_method"].lower()) if isinstance(item, dict) else None
+        if isinstance(op, dict):
+            return op
+    return None
+
+
+def example_request(spec: Any, listing: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The request the seller's OpenAPI document gives as an example for this endpoint, or None."""
+    op = operation(spec, listing)
+    if op is None:
+        return None
+    body = None
+    request_body = _resolve(spec, op.get("requestBody"))
+    if isinstance(request_body, dict):
+        media = (request_body.get("content") or {}).get("application/json")
+        if isinstance(media, dict):
+            if "example" in media:
+                body = media["example"]
+            elif isinstance(media.get("examples"), dict) and media["examples"]:
+                first = _resolve(spec, next(iter(media["examples"].values())))
+                body = first.get("value") if isinstance(first, dict) else None
+            if body is None:
+                body = _from_schema(spec, media.get("schema"))
+    query: Dict[str, Any] = {}
+    for param in op.get("parameters") or []:
+        param = _resolve(spec, param)
+        if not isinstance(param, dict) or param.get("in") != "query" or not param.get("required"):
+            continue
+        value = param.get("example")
+        if value is None and isinstance(param.get("examples"), dict) and param["examples"]:
+            first = _resolve(spec, next(iter(param["examples"].values())))
+            value = first.get("value") if isinstance(first, dict) else None
+        if value is None:
+            value = _from_schema(spec, param.get("schema"))
+        if value is None or isinstance(value, (dict, list)) or not isinstance(param.get("name"), str):
+            return None
+        query[param["name"]] = "true" if value is True else "false" if value is False else value
+    if body is None and not query:
+        return None
+    try:
+        if len(json.dumps(body)) > MAX_EXAMPLE or len(urlencode(query)) > 2048:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return {"json": body, "query": query}
+
+
+class SpecReader:
+    """Each host's /openapi.json, read once per run through the safe fetcher."""
+
+    def __init__(self, fetcher: Optional[SafeFetcher] = None):
+        self.fetcher = fetcher or SafeFetcher(max_bytes=MAX_SPEC)
+        self.specs: Dict[str, Any] = {}
+        self.lock = threading.Lock()
+
+    def spec(self, host: str) -> Any:
+        with self.lock:
+            if host in self.specs:
+                return self.specs[host]
+        try:
+            fetched = self.fetcher.fetch(f"https://{host}{SPEC_PATH}", "GET")
+            found = json.loads(fetched.body) if fetched.status == 200 and not fetched.truncated else None
+        except (FetchError, ValueError, UnicodeDecodeError, RecursionError):
+            found = None
+        with self.lock:
+            self.specs[host] = found if isinstance(found, dict) else None
+        return self.specs[host]
+
+    def examples(self, listings: List[Dict[str, Any]], workers: int = 12) -> Dict[str, Dict[str, Any]]:
+        hosts = sorted({x["host"] for x in listings})
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(self.spec, hosts))
+        out = {}
+        for x in listings:
+            found = example_request(self.specs.get(x["host"]), x)
+            if found:
+                out[x["resource"]] = found
+        return out
+
+
+def probe(fetcher: SafeFetcher, listing: Dict[str, Any], *, example: Optional[Dict[str, Any]] = None,
+          retry_pause: float = 2.0, sleep: Callable[[float], None] = time.sleep,
+          clock: Callable[[], str] = _now) -> Dict[str, Any]:
     """Ask, and ask once more a little later when the first answer gives no payable challenge."""
-    found = {"at": clock(), "attempts": 1, **ask(fetcher, listing)}
+    found = {"at": clock(), "attempts": 1, **ask(fetcher, listing, example)}
     if answer(found) != "payable" and found.get("error") != "refused":
         sleep(retry_pause)
-        found = {"at": clock(), "attempts": 2, **ask(fetcher, listing)}
+        found = {"at": clock(), "attempts": 2, **ask(fetcher, listing, example)}
     return found
 
 
@@ -270,7 +432,8 @@ class CatalogReader:
 # --- One run and its sheet ---------------------------------------------------------------------------------------
 
 def run(run_id: Optional[str] = None, *, reader: Optional[CatalogReader] = None,
-        fetcher: Optional[SafeFetcher] = None, settings=None, clock: Callable[[], str] = _now) -> Dict[str, Any]:
+        fetcher: Optional[SafeFetcher] = None, specs: Optional[SpecReader] = None, settings=None,
+        clock: Callable[[], str] = _now) -> Dict[str, Any]:
     """Read the catalog and ask every paid endpoint. The result is the run file."""
     from agoranome_inspector.measure import Settings, ask_all
 
@@ -280,9 +443,11 @@ def run(run_id: Optional[str] = None, *, reader: Optional[CatalogReader] = None,
     read_at = clock()
     catalog = reader.read()
     started = clock()
+    examples = (specs or SpecReader()).examples(catalog["listings"])
     seen = ask_all(catalog["listings"], fetcher, settings, clock=clock,
-                   asker=lambda x: probe(fetcher, x, retry_pause=settings.retry_pause, clock=clock),
-                   again=lambda x: ask(fetcher, x), judge_fn=judge)
+                   asker=lambda x: probe(fetcher, x, example=examples.get(x["resource"]),
+                                         retry_pause=settings.retry_pause, clock=clock),
+                   again=lambda x: ask(fetcher, x, examples.get(x["resource"])), judge_fn=judge)
     ended = clock()
     return {
         "kind": RUN_KIND,
@@ -292,7 +457,8 @@ def run(run_id: Optional[str] = None, *, reader: Optional[CatalogReader] = None,
                     "endpoints": len(catalog["listings"]), "skipped": catalog["skipped"]},
         "probe": {"started": started, "ended": ended, "user_agent": fetcher.user_agent,
                   "per_host": settings.per_host, "budget_seconds": int(settings.budget_seconds),
-                  "asked": len(seen), "chosen": len(catalog["listings"])},
+                  "asked": len(seen), "chosen": len(catalog["listings"]),
+                  "asked_with_seller_example": len(examples)},
         "listings": catalog["listings"],
         "seen": seen,
     }

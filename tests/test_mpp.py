@@ -2,6 +2,8 @@
 
 import json
 
+import httpx
+
 from agoranome_inspector import mpp
 from agoranome_inspector import sheet as sheet_lib
 from agoranome_inspector.keys import Signer
@@ -12,14 +14,15 @@ from agoranome_inspector.rule_mpp import judge
 from agoranome_inspector.verify import verify
 
 from fakes import standard_market
-from fakes_mpp import OTHER, PAY, PATH_USD, answer, by_path, challenge, request_param, standard_mpp_market
+from fakes_mpp import (OTHER, PAY, PATH_USD, answer, by_path, challenge, endpoint, payment, request_param, service,
+                       standard_mpp_market)
 
 QUICK = Settings(concurrency=2, host_pause=0, retry_pause=0, confirm_pause=0)
 
 
 def mpp_sheet(market, sheet_id="mpp-2026-11-16"):
     found = mpp.run(sheet_id, reader=market.catalog_reader(), fetcher=market.fetcher(), settings=QUICK,
-                    clock=lambda: "2026-11-16T06:00:00Z")
+                    specs=mpp.SpecReader(market.fetcher()), clock=lambda: "2026-11-16T06:00:00Z")
     return found, mpp.build(found)
 
 
@@ -161,3 +164,85 @@ def test_nothing_a_seller_writes_as_prose_reaches_the_sheet():
     assert {o["recipient"] for o in got} == {None, PAY.lower()} and None in {o["method"] for o in got}
     assert judge(listed("10000"), {"status": 402, "error": None, "options": got[:1]})["answer"] in (
         "unreadable_offer", "payable")
+
+
+# --- asking with the seller's own example request ----------------------------------------------------------------
+
+SPEC = {
+    "openapi": "3.1.0",
+    "paths": {
+        "/v1/translate": {"post": {
+            "requestBody": {"$ref": "#/components/requestBodies/Translate"},
+            "x-payment-info": {"offers": [{"amount": "5000", "currency": PATH_USD, "intent": "charge",
+                                           "method": "tempo"}]}}},
+        "/v1/weather": {"get": {"parameters": [
+            {"name": "city", "in": "query", "required": True, "schema": {"type": "string", "example": "Oslo"}},
+            {"name": "units", "in": "query", "required": False, "example": "metric"}]}},
+        "/v1/built": {"post": {"requestBody": {"content": {"application/json": {"schema": {
+            "type": "object", "required": ["text", "n", "mode"],
+            "properties": {"text": {"type": "string"}, "n": {"type": "integer", "default": 3},
+                           "mode": {"enum": ["fast", "slow"]}, "extra": {"type": "string"}}}}}}}},
+    },
+    "components": {"requestBodies": {"Translate": {"content": {"application/json": {
+        "examples": {"first": {"value": {"text": "hello", "to": "fr"}}}}}}}},
+}
+
+
+def listing(method, url):
+    return {"http_method": method, "url": url, "host": "lang.example", "resource": f"{method} {url}"}
+
+
+def test_the_example_comes_from_the_sellers_own_document():
+    assert mpp.example_request(SPEC, listing("POST", "https://lang.example/v1/translate")) == {
+        "json": {"text": "hello", "to": "fr"}, "query": {}}
+    assert mpp.example_request(SPEC, listing("GET", "https://lang.example/v1/weather")) == {
+        "json": None, "query": {"city": "Oslo"}}
+    assert mpp.example_request(SPEC, listing("POST", "https://lang.example/v1/built"))["json"] == {
+        "text": "example", "n": 3, "mode": "fast"}
+    assert mpp.example_request(SPEC, listing("GET", "https://lang.example/v1/translate")) is None   # no GET there
+    assert mpp.example_request(None, listing("POST", "https://lang.example/v1/translate")) is None
+    looping = {"paths": {"/x": {"post": {"requestBody": {"$ref": "#/components/a"}}}},
+               "components": {"a": {"$ref": "#/components/a"}}}
+    assert mpp.example_request(looping, listing("POST", "https://lang.example/x")) is None
+
+
+def checking_seller():
+    """Answers 400 until the request carries what its document says, then quotes."""
+    def handle(request):
+        if request.url.path == "/openapi.json":
+            return httpx.Response(200, json=SPEC)
+        if request.url.path == "/v1/translate":
+            body = json.loads(request.content or b"{}")
+            if "text" not in body:
+                return httpx.Response(400, json={"error": "text is required"})
+            return answer(challenge("5000"))
+        if request.url.path == "/v1/weather":
+            if request.url.params.get("city") != "Oslo":
+                return httpx.Response(400, json={"error": "invalid city"})
+            return answer(challenge("1000"))
+        return httpx.Response(404)
+    return handle
+
+
+def test_an_endpoint_that_checks_the_request_is_asked_with_its_example_and_judged():
+    catalog = {"version": 1, "services": [
+        service("lang", [endpoint("POST", "/v1/translate", payment("5000")),
+                         endpoint("GET", "/v1/weather", payment("1000"))]),
+        service("nodoc", [endpoint("POST", "/v1/run", payment("5000"))]),
+    ]}
+    from fakes_mpp import MppMarket
+
+    market = MppMarket(catalog, {"lang.example": checking_seller(),
+                                 "nodoc.example": lambda r: httpx.Response(400, json={"error": "prompt required"})})
+    found, sheet = mpp_sheet(market)
+    assert found["probe"]["asked_with_seller_example"] == 2
+    by = rows(sheet)
+    translate, weather = by["POST https://lang.example/v1/translate"], by["GET https://lang.example/v1/weather"]
+    assert translate["seen"]["request"] == "seller_example" and translate["verdict"]["price"] == "as_listed"
+    assert weather["verdict"]["answer"] == "payable"
+    nodoc = by["POST https://nodoc.example/v1/run"]
+    assert nodoc["seen"]["request"] == "empty" and nodoc["verdict"]["answer"] == "wants_input"
+    assert nodoc["verdict"]["matches_listing"] is None
+    assert "hello" not in json.dumps(sheet)                          # the example is sent, not published
+    from agoranome_inspector.checks import before_signing
+    assert before_signing(sheet) == []                               # wants_input is not an unanswered ask

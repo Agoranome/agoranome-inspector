@@ -130,12 +130,14 @@ ANSWER_WORDS = {
     "no_payment_asked": "answered without asking for payment", "gone": "gone (404 or 410)",
     "http_4xx": "refused the request", "http_5xx": "failed with a server error", "unreachable": "unreachable",
     "declined": "not asked (not public https)", "not_asked": "not reached in this run", "other": "other",
+    "wants_input": "wanted a valid request before quoting a price (not judged)",
 }
 
 
 MARKET_WORDS = {
     "x402": ("x402", "Every listing in Coinbase's x402 Bazaar with 3 or more payers in 30 days"),
-    "mpp": ("MPP", "Every paid endpoint in the public MPP catalog at mpp.dev (the catalog states no demand)"),
+    "mpp": ("MPP", "Every paid endpoint in the public MPP catalog at mpp.dev (the catalog states no demand), each "
+                   "asked with the example request its own OpenAPI document gives, when it gives one"),
 }
 
 

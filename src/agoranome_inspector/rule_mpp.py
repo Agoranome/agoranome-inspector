@@ -32,14 +32,21 @@ METHOD = [
     "Who is on the sheet: every endpoint with a payment in the public MPP catalog (https://mpp.dev/api/services) "
     "on the day of the run, except paths that need parameters filled in. The catalog states no demand, so no "
     "demand is claimed. Every verdict comes from the endpoint's own answer.",
-    "How each endpoint is asked: with the HTTP method the catalog lists (GET, or POST with an empty JSON body; "
-    "other methods are not asked), from a public address, following no redirect. One that gives no payable "
+    "How each endpoint is asked: with the HTTP method the catalog lists (GET or POST; other methods are not "
+    "asked), from a public address, following no redirect, with the example request the seller's own OpenAPI "
+    "document (/openapi.json on the endpoint's host) gives for that path and method: its example body and its "
+    "required query parameters' examples, or values built from the schema's own examples, defaults and enums "
+    "(request: seller_example). With no such example it is asked with no parameters and, for POST, an empty "
+    "JSON body (request: empty). The example is sent, not published. One that gives no payable "
     "challenge is asked once more a few seconds later and the second answer is kept. One whose challenge differs "
     "from its listing in a way that would count against the seller (a higher price, a missing method) is asked "
     "once more a few seconds later, and both answers are kept (seen.again). Nothing is ever paid.",
     "answer: payable when the endpoint answered 402 with at least one WWW-Authenticate Payment challenge whose "
     "request names an amount, a currency and a recipient; unreadable_offer for a 402 without one; the other "
-    "answers as in sheet-1 (a 401 asking for a token first is http_4xx).",
+    "answers as in sheet-1 (a 401 asking for a token first is http_4xx), except that a 400 or 422 is wants_input: "
+    "the endpoint checks the request before it quotes a price, as one whose price depends on the request must, "
+    "and the request the inspector could send did not satisfy it. wants_input is not a failing and is not "
+    "judged.",
     "Comparing one listed payment: the live challenges with the same method, currency and intent are its "
     "candidates (same method and currency, any intent, when none has the same intent). Its price is as_listed "
     "when a candidate asks exactly the listed amount, below_listed when the cheapest asks less, above_listed "
@@ -76,8 +83,14 @@ def _seen_as_x402(seen: Dict[str, Any]) -> Dict[str, Any]:
     return {**seen, "options": [_to_x402(o) for o in seen.get("options") or []]}
 
 
+WANTS_INPUT = (400, 422)
+
+
 def answer(seen: Optional[Dict[str, Any]]) -> str:
-    return x402.answer(None if seen is None else _seen_as_x402(seen))
+    said = x402.answer(None if seen is None else _seen_as_x402(seen))
+    if said == "http_4xx" and (seen or {}).get("status") in WANTS_INPUT:
+        return "wants_input"
+    return said
 
 
 def needs_confirmation(verdict: Dict[str, Any]) -> bool:

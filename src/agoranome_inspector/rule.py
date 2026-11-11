@@ -26,7 +26,7 @@ from agoranome_inspector import networks
 RULE = "sheet-1"
 
 ANSWERS = ("payable", "unreadable_offer", "no_payment_asked", "gone", "http_4xx", "http_5xx", "unreachable",
-           "declined", "not_asked", "other")
+           "declined", "not_asked", "other", "wants_input")      # wants_input: MPP's mpp-1 only
 PRICES = ("as_listed", "below_listed", "above_listed", "listed_option_missing", "not_listed", "varies")
 PAY_TOS = ("as_listed", "different", "listed_option_missing", "not_listed", "varies")
 MAX_DIFFERS = 8

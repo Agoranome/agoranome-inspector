@@ -267,8 +267,14 @@ def trial_mpp(args) -> None:
     fetcher = SafeFetcher()
     settings = Settings(concurrency=12, per_host=args.per_host, host_pause=0.5, budget_seconds=args.budget)
     t1 = time.monotonic()
-    seen = ask_all(sample, fetcher, settings, asker=lambda x: mpp.probe(fetcher, x),
-                   again=lambda x: mpp.ask(fetcher, x), judge_fn=rule_mpp.judge)
+    t_spec = time.monotonic()
+    examples = mpp.SpecReader().examples(sample)
+    report["examples"] = {"seconds": round(time.monotonic() - t_spec), "rows_with_seller_example": len(examples),
+                          "with_body": sum(1 for e in examples.values() if e.get("json") is not None),
+                          "with_query": sum(1 for e in examples.values() if e.get("query"))}
+    seen = ask_all(sample, fetcher, settings,
+                   asker=lambda x: mpp.probe(fetcher, x, example=examples.get(x["resource"])),
+                   again=lambda x: mpp.ask(fetcher, x, examples.get(x["resource"])), judge_fn=rule_mpp.judge)
     built = mpp.build({"id": "mpp-trial", "catalog": {"url": catalog["url"], "read_at": None},
                        "probe": {"trial": True}, "listings": sample, "seen": seen})
     observed = [s for s in seen.values() if s]
@@ -281,7 +287,9 @@ def trial_mpp(args) -> None:
                        "live_methods": top(Counter(o.get("method") for s in observed for o in s["options"])),
                        "live_intents": top(Counter(o.get("intent") for s in observed for o in s["options"])),
                        "options_with_a_dropped_field": sum(
-                           _dropped(s["options"], ("method", "intent", "currency", "recipient")) for s in observed)}
+                           _dropped(s["options"], ("method", "intent", "currency", "recipient")) for s in observed),
+                       "answer_by_request": top(Counter(f"{s.get('request')}: {rule_mpp.answer(s)}"
+                                                        for s in observed), 20)}
     report["sheet"] = built["summary"]
     report["mismatches"] = mismatches(built)
     report["mismatching_hosts"] = len({r["host"] for r in _differing(built["rows"])})

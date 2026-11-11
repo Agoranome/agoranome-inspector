@@ -25,7 +25,7 @@ def x402_sheet(market, sheet_id="x402-2026-11-16"):
 
 def mpp_sheet(market, sheet_id="mpp-2026-11-16"):
     found = mpp.run(sheet_id, reader=market.catalog_reader(), fetcher=market.fetcher(), settings=QUICK,
-                    clock=lambda: "2026-11-16T06:00:00Z")
+                    specs=mpp.SpecReader(market.fetcher()), clock=lambda: "2026-11-16T06:00:00Z")
     return mpp.build(found)
 
 
