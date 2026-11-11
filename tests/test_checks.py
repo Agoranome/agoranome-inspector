@@ -25,7 +25,12 @@ def test_a_normal_week_passes():
 
 
 def test_each_bound_holds():
-    assert before_signing(sheet(NORMAL, complete=False)) == ["the index was not read completely"]
+    assert before_signing(sheet(NORMAL, complete=False)) == ["the index was not read completely (None of None listings)"]
+    live = sheet(NORMAL, complete=False)
+    live["selection"].update(index_listings=32965, index_read=32964)          # a listing added while paging
+    assert before_signing(live) == []
+    live["selection"].update(index_read=30000)
+    assert before_signing(live) == ["the index was not read completely (30000 of 32965 listings)"]
     assert before_signing(sheet({}, rows=0)) == ["the sheet has no rows"]
     assert "gave no answer at all" in before_signing(sheet({"payable": 70, "unreachable": 30}))[0]
     assert "row count moved" in before_signing(sheet({"payable": 60}), sheet(NORMAL))[0]

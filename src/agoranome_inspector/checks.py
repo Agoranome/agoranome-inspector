@@ -16,7 +16,7 @@
 book only grows, so a reading that looks broken is held unpublished for the operator instead of being signed.
 
 A sheet is held when:
-  - the index (or catalog) was not read completely;
+  - the index was not read completely (short by more than MAX_INDEX_SHORT of what it reports);
   - it has no rows;
   - more than MAX_UNREACHABLE of the endpoints asked gave no HTTP answer at all (the run's network, not the
     sellers, is the likely cause);
@@ -31,6 +31,9 @@ from typing import Any, Dict, List, Optional
 MAX_UNREACHABLE = 0.25
 MAX_ROWS_MOVE = 0.30
 MAX_PAYABLE_MOVE = 0.10
+# The index is live and is paged for minutes, so a listing added meanwhile can be missed (a trial read 32,964 of
+# 32,965). A read short by at most this share of the listings the index reports still counts as read.
+MAX_INDEX_SHORT = 0.001
 # Answers that say nothing about whether the endpoint works: not reached, not public, or (MPP) wanting a request
 # the inspector could not form.
 NOT_ASKED = ("not_asked", "declined", "wants_input")
@@ -52,7 +55,10 @@ def before_signing(sheet: Dict[str, Any], previous: Optional[Dict[str, Any]] = N
     reasons: List[str] = []
     selection = sheet.get("selection") or {}
     if selection.get("index_complete") is False:
-        reasons.append("the index was not read completely")
+        total, read = selection.get("index_listings"), selection.get("index_read")
+        if not (isinstance(total, int) and isinstance(read, int) and total > 0
+                and (total - read) / total <= MAX_INDEX_SHORT):
+            reasons.append(f"the index was not read completely ({read} of {total} listings)")
     summary = sheet.get("summary") or {}
     rows = summary.get("rows", len(sheet.get("rows") or []))
     if not rows:

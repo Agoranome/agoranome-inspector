@@ -248,6 +248,24 @@ def _catalog_keys(raw) -> dict:
             "payment": top(Counter(k for p in pays for k in p), 30)}
 
 
+def _units(raw, built) -> dict:
+    """The catalog's unitType values, overall and on rows whose live price differs (counts only)."""
+    unit = {}
+    for service in raw.get("services") or []:
+        base = str(service.get("serviceUrl") or service.get("url") or "").strip().rstrip("/")
+        for e in service.get("endpoints") or []:
+            pay = e.get("payment") if isinstance(e, dict) else None
+            if isinstance(pay, dict):
+                path = str(e.get("path") or "/")
+                url = base + (path if path.startswith("/") else "/" + path)
+                unit[f"{str(e.get('method') or 'GET').upper()} {url}"] = (
+                    str(pay.get("unitType"))[:24], bool(pay.get("dynamic")), "amountHint" in pay)
+    rows = built["rows"]
+    return {"all": top(Counter(u[0] for u in unit.values()), 15),
+            "rows_by_price": top(Counter(f"{r['verdict'].get('price')}: {unit.get(r['resource'], ('?',))[0]}"
+                                         for r in rows), 25)}
+
+
 def trial_mpp(args) -> None:
     """The MPP catalog, asked unpaid: counts only, no service named."""
     t0 = time.monotonic()
@@ -297,7 +315,9 @@ def trial_mpp(args) -> None:
     report["verify"] = _verify(built)
     report["why_4xx"] = _why_4xx(sample, seen, fetcher)
     try:
-        report["catalog_keys"] = _catalog_keys(json.loads(mpp.CatalogReader().client.get(mpp.CATALOG_URL).content))
+        raw = json.loads(mpp.CatalogReader().client.get(mpp.CATALOG_URL).content)
+        report["catalog_keys"] = _catalog_keys(raw)
+        report["units"] = _units(raw, built)
     except Exception as e:  # noqa: BLE001
         report["catalog_keys"] = {"error": type(e).__name__}
     print(json.dumps(report, indent=2))

@@ -223,7 +223,8 @@ into the same book; a market joins the list once its trial runs have been checke
 
 **The check before signing.** The verifier proves the book is consistent, not that a week's reading is sound, and
 the book only grows. So `run` holds a sheet unpublished, and the job fails so that GitHub tells the owner, when the
-index was not read completely, the sheet has no rows, more than 25% of the endpoints asked gave no answer at all,
+index was not read completely (short by more than one listing in a thousand: the index is live and changes
+while it is paged), the sheet has no rows, more than 25% of the endpoints asked gave no answer at all,
 or, against the last sheet of the same market, the row count moved by more than 30% or the payable share by more
 than 10 points. Other markets are still published. After looking, start the workflow by hand with "publish
 anyway"; the book then carries a note saying the sheet was published past the check, and why.

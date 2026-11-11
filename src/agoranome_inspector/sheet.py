@@ -111,6 +111,7 @@ def build(sheet_id: str, listings: List[Dict[str, Any]], seen: Dict[str, Optiona
             "min_payers_30d": min_payers,
             "index_read_at": index.get("read_at"),
             "index_listings": index.get("total_reported"),
+            "index_read": len(index["listings"]) if isinstance(index.get("listings"), list) else index.get("listings"),
             "index_complete": bool(index.get("complete")),
             "index_digest": index.get("digest"),
             "index_counts_published": publish_index_counts,
