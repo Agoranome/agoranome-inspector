@@ -45,13 +45,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ".[models]"
+      - run: pip install ".[models,eth]"
       - name: Measure, sign, verify and publish
         id: weekly
         shell: bash      # with pipefail, so the tee keeps the run's exit code
         env:
           INSPECTOR_SIGNING_KEY: ${{ secrets.INSPECTOR_SIGNING_KEY }}
           INSPECTOR_FIRST_KID: ${{ vars.INSPECTOR_FIRST_KID }}
+          BASE_RPC: ${{ secrets.BASE_RPC }}
           RUN_MARKETS: ${{ vars.RUN_MARKETS }}
           PUBLISH_ANYWAY: ${{ github.event.inputs.publish_anyway == 'true' && 'yes' || '' }}
         run: bash scripts/weekly.sh 2>&1 | tee "$RUNNER_TEMP/weekly.log"

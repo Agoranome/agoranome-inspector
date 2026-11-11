@@ -1,0 +1,50 @@
+name: Answer a dispute
+
+# By hand from the Actions tab: the operator's answer to one seller's dispute, signed into the open book beside it.
+# The dispute's id is on the site's disputes.json. An answer is never changed. No model reads a dispute or writes an
+# answer. Nothing runs until the INSPECTOR_SIGNING_KEY secret is set.
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: "The dispute's id (d-...)"
+        type: string
+        required: true
+      outcome:
+        description: "Upheld (the row was wrong) or not upheld"
+        type: choice
+        options: [upheld, not_upheld]
+      reason:
+        description: "Why, in at most 500 characters"
+        type: string
+        required: true
+      correction:
+        description: "Upheld only: what the row should say"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-sheet      # one writer of the book at a time
+  cancel-in-progress: false
+
+jobs:
+  answer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ".[eth]"
+      - name: Answer, verify and publish
+        env:
+          INSPECTOR_SIGNING_KEY: ${{ secrets.INSPECTOR_SIGNING_KEY }}
+          INSPECTOR_FIRST_KID: ${{ vars.INSPECTOR_FIRST_KID }}
+          ANSWER_ID: ${{ github.event.inputs.id }}
+          ANSWER_OUTCOME: ${{ github.event.inputs.outcome }}
+          ANSWER_REASON: ${{ github.event.inputs.reason }}
+          ANSWER_CORRECTION: ${{ github.event.inputs.correction }}
+        run: bash scripts/accounts.sh

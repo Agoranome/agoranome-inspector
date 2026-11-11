@@ -52,6 +52,13 @@ for market in ${RUN_MARKETS:-x402 mpp}; do
 done
 
 if [ -f "$SITE/book.jsonl" ]; then
+  # Delivery signs from the chain: payers and repeat payers of each x402 seller (signs.py), once the BASE_RPC secret
+  # names a Base RPC that answers eth_getLogs. Counts only in this log.
+  if [ -n "${BASE_RPC:-}" ]; then
+    if ! "$INSPECTOR" signs "$SITE" --rpc "$BASE_RPC" --private "$PRIVATE" ${SIGNS_ARGS:-}; then
+      echo "::warning::The delivery signs were not read from the chain this week; see the log above."
+    fi
+  fi
   # The shelf report card, graded again from the newest sheets (a new book entry only when something changed).
   "$INSPECTOR" shelf "$SITE"
   # The lab's receipt roots and the 15% pledge's figures, read from its public ledger. A ledger that can't be read,
@@ -59,9 +66,22 @@ if [ -f "$SITE/book.jsonl" ]; then
   if ! "$INSPECTOR" anchor-lab "$SITE" ${LAB_LEDGER:+--ledger "$LAB_LEDGER"}; then
     echo "::warning::The lab's pledge ledger was not put in the book this week; see the log above."
   fi
+  # Close each finished month in the accounts, as a back-stop to the month-close workflow: what each source earned
+  # and what the pledge owes (accounts.py). A month closes once; a late statement is closed again by hand.
+  "$INSPECTOR" close "$SITE"
   # Buyers' reports, each tied to a payment on Base, from the lab's public listing (counts only in this log).
   if ! "$INSPECTOR" reports "$SITE" ${LAB_REPORTS:+--source "$LAB_REPORTS"}; then
     echo "::warning::The lab's buyers' reports were not put in the book this week; see the log above."
+  fi
+  # Sellers' disputes, each signed by the row's pay-to address, from the lab's public listing (counts only).
+  if ! "$INSPECTOR" disputes "$SITE" ${LAB_DISPUTES:+--source "$LAB_DISPUTES"}; then
+    echo "::warning::The lab's disputes were not put in the book this week; see the log above."
+  fi
+  # Best-buy sheets from what the book now holds (a new entry only when a row changed).
+  "$INSPECTOR" best-buy "$SITE"
+  # The plan's gates from the lab, the money gate completed from the accounts (a new entry only on a change).
+  if ! "$INSPECTOR" gates "$SITE" ${LAB_GATES:+--source "$LAB_GATES"}; then
+    echo "::warning::The lab's gates were not put in the book this week; see the log above."
   fi
   touch "$SITE/.nojekyll"
   # A pinned first key, once Shariar has published it as the repository variable INSPECTOR_FIRST_KID.

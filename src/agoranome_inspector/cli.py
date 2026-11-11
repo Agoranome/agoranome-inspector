@@ -30,7 +30,14 @@ For the inspector's operator:
   run SITE --private DIR               measure, sheet and publish in one go
   anchor-lab SITE                      copy the lab's monthly receipt roots and pledge figures into the book
   shelf SITE                           grade the shelves (the Bazaar, AgentCore, MPP, Skyfire) into the book
-  note SITE TEXT                       a note in the book (a correction, a dispute and its answer)
+  note SITE TEXT                       a note in the book (a correction)
+  statement SITE --type T ...          a payout, licence, prize, grant or credit in the accounts (accounts-1)
+  close SITE [--period YYYY-MM]        close finished months: what each source earned and what the pledge owes
+  signs SITE --rpc RPC                 payers and repeat payers of each x402 seller, from the chain (signs-1)
+  best-buy SITE                        one list per kind of job, price and delivery signs side by side (best-buy-1)
+  disputes SITE                        copy sellers' disputes from the lab into the book
+  answer SITE ID --outcome O --reason R   the operator's answer to one dispute
+  gates SITE                           the plan's gates from the lab, the money gate completed from the accounts
 """
 
 import argparse
@@ -65,10 +72,11 @@ def cmd_verify(args) -> int:
     report = verify(args.site, args.id, pinned_kid=args.key, since=_since(args.since), every=args.all,
                     recheck_n=args.recheck, chain_rpc=args.chain)
     if args.json:
-        print(json.dumps({"ok": report.ok, "checks": report.checks, "recheck": report.recheck}, indent=2))
+        print(json.dumps({"ok": report.ok, "checks": report.checks, "warnings": report.warnings,
+                          "recheck": report.recheck}, indent=2))
     else:
         print("\n".join(report.lines()))
-    return 0 if report.ok else 1
+    return 0 if report.ok and not (args.strict and report.warnings) else 1
 
 
 def cmd_proof(args) -> int:
@@ -371,6 +379,235 @@ def cmd_note(args) -> int:
     return 0
 
 
+def cmd_statement(args) -> int:
+    """Post one statement into the accounts. The document itself stays with the operator; its hash goes in."""
+    import hashlib
+
+    from agoranome_inspector import accounts
+    from agoranome_inspector.book import Book
+    from agoranome_inspector.publish import BOOK, write_accounts, write_head, write_index
+
+    digest = args.document_sha256
+    if args.document:
+        digest = hashlib.sha256(Path(args.document).read_bytes()).hexdigest()
+    funder_agrees = args.funder_agrees_sha256
+    if args.funder_agrees:
+        funder_agrees = hashlib.sha256(Path(args.funder_agrees).read_bytes()).hexdigest()
+    body = accounts.statement_body(
+        kind=args.type, payer=args.payer, period=args.period, amount_usd=args.amount_usd, document_sha256=digest,
+        document_url=args.document_url, currency=args.currency, amount=args.amount, tx_hash=args.tx,
+        list_price_usd=args.list_price_usd, graded_host=args.graded_host, grant_tests=args.passes_grant_tests,
+        funder_agrees_sha256=funder_agrees, note=args.note)
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entry = book.append(_key(args), "statement", body)
+    write_accounts(site, book)
+    write_index(site, book)
+    write_head(site, book)
+    print(json.dumps({"seq": entry["seq"], "type": body["type"], "period": body["period"],
+                      "pledged": body["pledged"]}))
+    return 0
+
+
+def cmd_close(args) -> int:
+    """Close each finished month that has income and no close yet (or the one month named, again)."""
+    from agoranome_inspector import accounts
+    from agoranome_inspector.book import Book, utc_now
+    from agoranome_inspector.publish import BOOK, write_accounts, write_head, write_index
+
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    periods = [args.period] if args.period else accounts.months_to_close(entries, utc_now())
+    if args.period and not accounts.PERIOD.match(args.period):
+        raise ValueError("--period must be YYYY-MM")
+    if args.period and args.period >= utc_now()[:7]:
+        raise ValueError("only a finished month can be closed")
+    signer = _key(args) if periods else None
+    closed = []
+    for period in periods:
+        body = accounts.close_body(book.entries(), period)
+        entry = book.append(signer, "close", body)
+        closed.append({"seq": entry["seq"], "period": period, "owed_atomic": body["owed_atomic"]})
+    if closed:
+        write_accounts(site, book)
+        write_index(site, book)
+        write_head(site, book)
+    print(json.dumps({"closed": closed} if closed else {"unchanged": True}))
+    return 0
+
+
+def cmd_signs(args) -> int:
+    """Delivery signs from the chain for the newest x402 sheet (signs.py). Prints counts only."""
+    from agoranome_inspector import pledge, signs
+    from agoranome_inspector.book import Book, entries_of
+    from agoranome_inspector.publish import BOOK, _write, load_sheet, write_head, write_index
+
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    sheets = [e for e in entries_of("sheet", entries) if (e["body"].get("market") or "x402") == "x402"]
+    if not sheets:
+        raise LookupError("the book holds no x402 sheet yet")
+    entry = sheets[-1]
+    if any((e["body"].get("sheet") or {}).get("id") == entry["body"]["id"] for e in entries_of("signs", entries)):
+        print(json.dumps({"unchanged": True, "sheet": entry["body"]["id"]}))
+        return 0
+    sheet = load_sheet(site, entry)
+    rank = {}
+    run_file = Path(args.private) / f"run-{sheet['id']}.json" if args.private else None
+    if run_file and run_file.exists():     # the index's payer counts: they order the reading, never published
+        for x in json.loads(run_file.read_text()).get("listings") or []:
+            rank[x.get("host")] = max(rank.get(x.get("host"), 0), float(x.get("payers_30d") or 0))
+    reader = signs.ChainReader(args.rpc, pledge.http_post)
+    found = signs.build(sheet, reader, rank=rank, days=args.days, max_hosts=args.max_hosts,
+                        budget_seconds=args.budget_seconds)
+    file = f"signs/{sheet['id']}.json"
+    digest = _write(site / file, signs.to_bytes(found))
+    kept = book.append(_key(args), "signs", {
+        "rule": found["rule"], "market": "x402", "sheet": {"seq": entry["seq"], "id": sheet["id"]}, "file": file,
+        "sha256": digest, "window": found["window"], "complete": found["complete"], "totals": found["totals"]})
+    write_index(site, book)
+    write_head(site, book)
+    print(json.dumps({"seq": kept["seq"], "totals": found["totals"], "complete": found["complete"]}))
+    return 0
+
+
+def cmd_bestbuy(args) -> int:
+    """Best-buy sheets from the signed pick tables, signs and reports (bestbuy.py). Prints counts only."""
+    from agoranome_inspector import bestbuy
+    from agoranome_inspector.book import Book, entries_of, utc_now
+    from agoranome_inspector.canonical import canonical, sha256_hex
+    from agoranome_inspector.publish import BOOK, _write, write_head, write_index
+
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+
+    def read(entry):
+        data = (site / entry["body"]["file"]).read_bytes()
+        if sha256_hex(data) != entry["body"]["sha256"]:
+            raise RuntimeError(f"{entry['body']['file']} does not match the book")
+        return json.loads(data)
+    got = bestbuy.inputs(entries, read)
+    if got is None:
+        print(json.dumps({"unchanged": True, "note": "no pick table yet"}))
+        return 0
+    found = bestbuy.build(got["tables"], got["signs"], got["reports"], got["sources"])
+    data = canonical(found) + b"\n"
+    digest = sha256_hex(data)
+    last = entries_of("bestbuy", entries)
+    if last and last[-1]["body"]["sha256"] == digest:
+        print(json.dumps({"unchanged": True}))
+        return 0
+    file = f"best-buy/{utc_now()[:10]}-{digest[:12]}.json"
+    _write(site / file, data)
+    entry = book.append(_key(args), "bestbuy", {"rule": found["rule"], "file": file, "sha256": digest,
+                                                "sources": found["sources"], "summary": bestbuy.summary(found)})
+    (site / "best-buy" / "index.html").write_text(bestbuy.page(found, file), encoding="utf-8")
+    write_index(site, book)
+    write_head(site, book)
+    print(json.dumps({"seq": entry["seq"], **bestbuy.summary(found)}))
+    return 0
+
+
+def _local_tables(site: Path, entries):
+    """table_for(sheet_id): the pick table the book signed for that sheet, read from the site, or None."""
+    from agoranome_inspector.canonical import sha256_hex
+
+    cache = {}
+
+    def table_for(sheet_id):
+        if sheet_id not in cache:
+            cache[sheet_id] = None
+            pick = next((e for e in reversed(entries) if e["kind"] == "pick"
+                         and (e["body"].get("sheet") or {}).get("id") == sheet_id), None)
+            if pick is not None:
+                data = (site / pick["body"]["file"]).read_bytes()
+                if sha256_hex(data) == pick["body"]["sha256"]:
+                    cache[sheet_id] = json.loads(data)
+        return cache[sheet_id]
+    return table_for
+
+
+def cmd_disputes(args) -> int:
+    """Copy sellers' disputes from the lab's listing into the book (disputes.py). Prints counts only."""
+    import urllib.error
+
+    from agoranome_inspector import disputes
+    from agoranome_inspector.book import Book, utc_now
+    from agoranome_inspector.publish import BOOK, write_disputes, write_head, write_index
+
+    try:
+        raw = disputes.read_disputes(args.source)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print(json.dumps({"unchanged": True, "note": "the lab doesn't list disputes yet"}))
+            return 0
+        raise
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    body = disputes.disputes_body(args.source, raw, utc_now(), entries, _local_tables(site, entries))
+    if not body["disputes"]:
+        print(json.dumps({"unchanged": True, "listed": body["listed"], "refused": body["refused"]}))
+        return 0
+    entry = book.append(_key(args), "dispute", body)
+    write_disputes(site, book)
+    write_index(site, book)
+    write_head(site, book)
+    print(json.dumps({"seq": entry["seq"], "new": len(body["disputes"]), "refused": body["refused"]}))
+    return 0
+
+
+def cmd_gates(args) -> int:
+    """Read the lab's gates and complete the money gate from the accounts (gates.py). Prints statuses only."""
+    import urllib.error
+
+    from agoranome_inspector import gates
+    from agoranome_inspector.book import Book, utc_now
+    from agoranome_inspector.publish import BOOK, write_gates, write_head, write_index
+
+    try:
+        raw = gates.read_gates(args.source)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print(json.dumps({"unchanged": True, "note": "the lab doesn't publish its gates yet"}))
+            return 0
+        raise
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    body = gates.gates_body(args.source, raw, utc_now(), entries)
+    if not gates.changed(body, entries):
+        print(json.dumps({"unchanged": True, "money": body["money"]}))
+        return 0
+    entry = book.append(_key(args), "gates", body)
+    write_gates(site, book)
+    write_index(site, book)
+    write_head(site, book)
+    print(json.dumps({"seq": entry["seq"], "money": body["money"],
+                      "gates": {k: v["status"] for k, v in body["gates"].items()}}))
+    return 0
+
+
+def cmd_answer(args) -> int:
+    """The operator's answer to one dispute, in the book beside it."""
+    from agoranome_inspector import disputes
+    from agoranome_inspector.book import Book
+    from agoranome_inspector.publish import BOOK, write_disputes, write_head, write_index
+
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    body = disputes.answer_body(book.entries(), args.id, args.outcome, args.reason, args.correction)
+    entry = book.append(_key(args), "answer", body)
+    write_disputes(site, book)
+    write_index(site, book)
+    write_head(site, book)
+    print(json.dumps({"seq": entry["seq"], "dispute": args.id, "outcome": args.outcome}))
+    return 0
+
+
 def cmd_weekly_note(args) -> int:
     from agoranome_inspector.assist import weekly_note
 
@@ -471,6 +708,7 @@ def parser() -> argparse.ArgumentParser:
     v.add_argument("--recheck", type=int, default=0, help="ask N rows' endpoints again, unpaid")
     v.add_argument("--chain", metavar="RPC", help="a Base RPC URL: check the pledge's transfers on the chain")
     v.add_argument("--json", action="store_true")
+    v.add_argument("--strict", action="store_true", help="fail on a warning too, such as a pledge paid late")
     v.set_defaults(func=cmd_verify)
 
     pr = sub.add_parser("proof", help="one row of a sheet with its Merkle proof")
@@ -578,6 +816,74 @@ def parser() -> argparse.ArgumentParser:
     n.add_argument("text")
     n.add_argument("--key-file")
     n.set_defaults(func=cmd_note)
+
+    st = sub.add_parser("statement", help="post a payout, licence, prize, grant or credit into the accounts")
+    st.add_argument("site")
+    st.add_argument("--type", required=True, choices=("payout", "licence", "prize", "grant", "credit"),
+                    help="grant = for named work, paid by milestone; prize = a grant with no strings, or a reward")
+    st.add_argument("--from", dest="payer", required=True, help="who paid: the merchant, licensee or funder")
+    st.add_argument("--period", required=True, help="YYYY-MM, the month the money arrived")
+    st.add_argument("--amount-usd", required=True, help="what reached Agoranome, in US dollars")
+    doc = st.add_mutually_exclusive_group(required=True)
+    doc.add_argument("--document", help="the statement, licence or award notice (only its hash goes in the book)")
+    doc.add_argument("--document-sha256", help="the document's SHA-256, when the file is elsewhere")
+    st.add_argument("--document-url", help="where the document is public, if it is")
+    st.add_argument("--currency", help="the currency it was paid in, if not dollars (e.g. EUR)")
+    st.add_argument("--amount", help="the amount as paid, in that currency")
+    st.add_argument("--tx", help="the transaction hash, when it came over a chain")
+    st.add_argument("--list-price-usd", help="a licence: the public list price it was sold at")
+    st.add_argument("--graded-host", help="the host of a payer the inspector grades, to print beside its row")
+    st.add_argument("--passes-grant-tests", action="store_true",
+                    help="a grant or prize: the funder passed the five tests (else it is refused)")
+    agree = st.add_mutually_exclusive_group()
+    agree.add_argument("--funder-agrees", help="a grant for named work: the funder's written agreement that the "
+                                               "pledge applies (only its hash goes in the book)")
+    agree.add_argument("--funder-agrees-sha256")
+    st.add_argument("--note", help="a short note, at most 280 characters")
+    st.add_argument("--key-file")
+    st.set_defaults(func=cmd_statement)
+
+    cl = sub.add_parser("close", help="close finished months: each source's earnings and what the pledge owes")
+    cl.add_argument("site")
+    cl.add_argument("--period", help="close this month (again, after a late statement)")
+    cl.add_argument("--key-file")
+    cl.set_defaults(func=cmd_close)
+
+    sg = sub.add_parser("signs", help="delivery signs from the chain: payers and repeat payers of each x402 seller")
+    sg.add_argument("site")
+    sg.add_argument("--rpc", required=True, help="a Base RPC URL that answers eth_getLogs")
+    sg.add_argument("--private", help="the private run directory (its index counts order the reading only)")
+    sg.add_argument("--days", type=int, default=30)
+    sg.add_argument("--max-hosts", type=int, default=500)
+    sg.add_argument("--budget-seconds", type=float, default=2400)
+    sg.add_argument("--key-file")
+    sg.set_defaults(func=cmd_signs)
+
+    bb = sub.add_parser("best-buy", help="best-buy sheets: one list per kind of job, price and signs side by side")
+    bb.add_argument("site")
+    bb.add_argument("--key-file")
+    bb.set_defaults(func=cmd_bestbuy)
+
+    dp = sub.add_parser("disputes", help="copy sellers' disputes, each signed by the row's pay-to, into the book")
+    dp.add_argument("site")
+    dp.add_argument("--source", default="https://api.agoranome.com/disputes.json")
+    dp.add_argument("--key-file")
+    dp.set_defaults(func=cmd_disputes)
+
+    gt = sub.add_parser("gates", help="the plan's gates from the lab, the money gate completed from the accounts")
+    gt.add_argument("site")
+    gt.add_argument("--source", default="https://api.agoranome.com/gates.json")
+    gt.add_argument("--key-file")
+    gt.set_defaults(func=cmd_gates)
+
+    an = sub.add_parser("answer", help="the operator's answer to a seller's dispute, in the book beside it")
+    an.add_argument("site")
+    an.add_argument("id", help="the dispute's id (d-...)")
+    an.add_argument("--outcome", required=True, choices=("upheld", "not_upheld"))
+    an.add_argument("--reason", required=True, help="why, in at most 500 characters")
+    an.add_argument("--correction", help="an upheld dispute: what the row should say")
+    an.add_argument("--key-file")
+    an.set_defaults(func=cmd_answer)
 
     wn = sub.add_parser("weekly-note", help="a model's short note on the newest sheets, numbers checked (notes/)")
     wn.add_argument("site")

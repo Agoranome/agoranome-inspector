@@ -40,13 +40,13 @@ from urllib.parse import urljoin
 
 from agoranome_inspector import changes as changes_lib
 from agoranome_inspector import sheet as sheet_lib
-from agoranome_inspector.book import check_chain, entries_of, parse
+from agoranome_inspector.book import check_chain, entries_of, parse, utc_now
 from agoranome_inspector.canonical import canonical, sha256_hex
 from agoranome_inspector.merkle import merkle_proof, verify_proof
 from agoranome_inspector.rules import RULES
 
 MAX_BYTES = 256 * 1024 * 1024
-SAFE_PATH = re.compile(r"^(sheets|changes|links|picks)/[A-Za-z0-9._-]+\.(json|csv)$")
+SAFE_PATH = re.compile(r"^(sheets|changes|links|picks|signs|best-buy|disputes)/[A-Za-z0-9._-]+\.(json|csv)$")
 
 
 def http_get(url: str, timeout: float = 60.0) -> bytes:
@@ -78,10 +78,16 @@ def _safe(rel: str) -> str:
 class Report:
     checks: List[Dict[str, Any]] = field(default_factory=list)
     recheck: Optional[Dict[str, Any]] = None
+    warnings: List[str] = field(default_factory=list)
 
     def add(self, name: str, ok: bool, detail: str) -> bool:
         self.checks.append({"check": name, "ok": bool(ok), "detail": detail})
         return ok
+
+    def warn(self, text: str) -> None:
+        """A fact the book shows that is not a fault in the book, such as a pledge paid late: printed, not failed
+        (verify --strict fails on it)."""
+        self.warnings.append(text)
 
     @property
     def ok(self) -> bool:
@@ -89,6 +95,7 @@ class Report:
 
     def lines(self) -> List[str]:
         out = [f"{'PASS' if c['ok'] else 'FAIL'}  {c['check']}: {c['detail']}" for c in self.checks]
+        out += [f"WARN  {w}" for w in self.warnings]
         if self.recheck:
             r = self.recheck
             out.append(f"INFO  recheck: {r['same']} of {r['asked']} rows asked again today gave the same verdict"
@@ -270,14 +277,161 @@ def check_pick(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entr
                f"{ref.get('id')}" if not problems else "; ".join(problems))
 
 
+def check_signs(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+                report: Report, chain_rpc: Optional[str] = None,
+                post: Optional[Callable[[str, bytes], bytes]] = None) -> None:
+    """A signs file: its hash, against its sheet, and with an RPC a few hosts counted again (signs.py)."""
+    from agoranome_inspector import pledge as pledge_lib
+    from agoranome_inspector import signs as signs_lib
+
+    body = entry["body"]
+    label = f"signs {(body.get('sheet') or {}).get('id')}"
+    try:
+        data = read(_safe(body["file"]))
+    except Exception as e:
+        report.add(label, False, f"could not read {body.get('file')} ({type(e).__name__})")
+        return
+    if sha256_hex(data) != body.get("sha256"):
+        report.add(label, False, f"{body['file']} does not match the hash in the book")
+        return
+    found = json.loads(data)
+    sheet_seq = (body.get("sheet") or {}).get("seq")
+    sheet_entry = next((e for e in entries if e["kind"] == "sheet" and e["seq"] == sheet_seq), None)
+    sheet = _load_sheet(read, sheet_entry, Report()) if sheet_entry else None
+    problems = signs_lib.check_file(found, sheet) if sheet else ["its sheet is not in the book"]
+    if found.get("totals") != body.get("totals") or found.get("window") != body.get("window"):
+        problems.append("the file's totals or window are not those the book signed")
+    if chain_rpc and not problems:
+        problems = signs_lib.recheck(found, signs_lib.ChainReader(chain_rpc, post or pledge_lib.http_post))
+    t = found.get("totals") or {}
+    report.add(label, not problems,
+               f"rule {found.get('rule')}: {t.get('counted', 0)} of {t.get('hosts', 0)} sellers counted, "
+               f"{t.get('with_repeat_payers', 0)} with repeat payers"
+               + (", a few counted again on the chain" if chain_rpc else "") if not problems
+               else "; ".join(problems[:5]))
+
+
+def check_bestbuy(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+                  report: Report) -> None:
+    """A best-buy file, built again from the entries before it (bestbuy.py)."""
+    from agoranome_inspector import bestbuy as bestbuy_lib
+
+    body = entry["body"]
+    label = f"best-buy {entry['seq']}"
+
+    def load(e: Dict[str, Any]) -> Dict[str, Any]:
+        data = read(_safe(e["body"]["file"]))
+        if sha256_hex(data) != e["body"]["sha256"]:
+            raise ValueError(f"{e['body']['file']} does not match the book")
+        return json.loads(data)
+    try:
+        found = load(entry)
+        got = bestbuy_lib.inputs([e for e in entries if e["seq"] < entry["seq"]], load)
+    except Exception as e:
+        report.add(label, False, f"could not be read or rebuilt ({type(e).__name__}: {e})"[:300])
+        return
+    again = bestbuy_lib.build(got["tables"], got["signs"], got["reports"], got["sources"]) if got else None
+    ok = again is not None and canonical(again) == canonical(found) and body.get("sources") == found.get("sources")
+    s = body.get("summary") or {}
+    report.add(label, ok, f"rule {found.get('rule')}: {s.get('listings', 0):,} endpoints in {s.get('categories', 0)} "
+                          f"kinds of job, rebuilt from the book" if ok else
+               "the best-buy file does not follow from the pick tables, signs and reports before it")
+
+
+def check_disputes(read: Callable[[str], bytes], entries: List[Dict[str, Any]], report: Report) -> None:
+    """Every dispute against its row's seller on the sheet's pick table, and every answer once, to a dispute before
+    it (disputes.py)."""
+    from agoranome_inspector import disputes as disputes_lib
+
+    filed = entries_of("dispute", entries)
+    answers = entries_of("answer", entries)
+    if not filed and not answers:
+        return
+    tables: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    def table_for(sheet_id: str) -> Optional[Dict[str, Any]]:
+        if sheet_id not in tables:
+            tables[sheet_id] = None
+            pick = next((e for e in reversed(entries) if e["kind"] == "pick"
+                         and (e["body"].get("sheet") or {}).get("id") == sheet_id), None)
+            if pick is not None:
+                try:
+                    data = read(_safe(pick["body"]["file"]))
+                    if sha256_hex(data) == pick["body"].get("sha256"):
+                        tables[sheet_id] = json.loads(data)
+                except Exception:
+                    pass
+        return tables[sheet_id]
+    problems = []
+    for e in filed:
+        problems += disputes_lib.check(e["body"], [x for x in entries if x["seq"] < e["seq"]], table_for)
+    seen = set()
+    for a in answers:
+        held = disputes_lib.held([x for x in entries if x["seq"] < a["seq"]])
+        d = a["body"].get("dispute")
+        if d not in held or d in seen or a["body"].get("outcome") not in disputes_lib.OUTCOMES:
+            problems.append(f"answer {a['seq']}: not one answer to a dispute the book held before it")
+        seen.add(d)
+    n = sum(len(e["body"].get("disputes") or []) for e in filed)
+    report.add("disputes", not problems, f"{n} dispute(s), each signed by its row's seller; {len(answers)} "
+                                         f"answer(s)" if not problems else "; ".join(problems[:5]))
+
+
+def check_accounts(entries: List[Dict[str, Any]], report: Report, every: bool = False) -> None:
+    """Each statement built again from its own fields, and each close recomputed from the entries before it
+    (accounts.py)."""
+    from agoranome_inspector import accounts as accounts_lib
+
+    statements = entries_of("statement", entries)
+    if statements:
+        bad = [f"{e['seq']}: {p}" for e in statements for p in accounts_lib.check_statement(e["body"])]
+        kinds: Dict[str, int] = {}
+        for e in statements:
+            kinds[e["body"]["type"]] = kinds.get(e["body"]["type"], 0) + 1
+        report.add("statements", not bad, (f"{len(statements)} statement(s): "
+                                           + ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
+                                           + f", rule {accounts_lib.RULE}") if not bad else "; ".join(bad[:5]))
+    closes = entries_of("close", entries)
+    for entry in (closes if every else closes[-3:]):
+        problems = accounts_lib.check_close(entry, entries)
+        b = entry["body"]
+        report.add(f"close {b.get('period')}", not problems,
+                   f"{len(b.get('sources') or [])} source(s), {_usd(b.get('earned_atomic'))} earned, "
+                   f"{_usd(b.get('owed_atomic'))} owed the cause, recomputed" if not problems else "; ".join(problems))
+
+
+def check_gates(entries: List[Dict[str, Any]], report: Report, every: bool = False) -> None:
+    """Each gates reading: known statuses, and the money figure the closed months before it give (gates.py)."""
+    from agoranome_inspector import gates as gates_lib
+
+    found = entries_of("gates", entries)
+    for entry in (found if every else found[-1:]):
+        problems = gates_lib.check(entry, entries)
+        report.add(f"gates {entry['seq']}", not problems,
+                   f"money gate {entry['body'].get('money')}, recomputed from the accounts" if not problems
+                   else "; ".join(problems))
+
+
+def _usd(atomic: Any) -> str:
+    from agoranome_inspector.pledge import usd
+
+    return usd(atomic or 0)
+
+
 def check_pledge(entry: Dict[str, Any], report: Report, chain_rpc: Optional[str] = None,
-                 post: Optional[Callable[[str, bytes], bytes]] = None) -> None:
-    """The pledge's arithmetic in one entry, and with an RPC its transfers on the chain (pledge.py)."""
+                 post: Optional[Callable[[str, bytes], bytes]] = None, entries: Optional[List[Dict[str, Any]]] = None,
+                 as_of: Optional[str] = None) -> None:
+    """The pledge's arithmetic in one entry, and with an RPC its transfers on the chain (pledge.py). As of a date,
+    with a cause named, a month or quarter past its grace with money still owed is a warning."""
+    from agoranome_inspector import accounts as accounts_lib
     from agoranome_inspector import pledge as pledge_lib
 
     body = entry["body"]
     label = f"pledge {entry['seq']}"
     problems = pledge_lib.check(body)
+    if as_of and not problems:
+        for text in pledge_lib.late(body, as_of, accounts_lib.owed_by_period(entries or [])):
+            report.warn(text)
     if chain_rpc and not problems:
         problems = pledge_lib.check_transfers(body, chain_rpc, post or pledge_lib.http_post)
     t = body.get("totals") or {}
@@ -346,7 +500,7 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
            since: Optional[Dict[str, Any]] = None, every: bool = False, recheck_n: int = 0,
            chain_rpc: Optional[str] = None, post: Optional[Callable[[str, bytes], bytes]] = None,
            get: Callable[[str], bytes] = http_get,
-           ask: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None) -> Report:
+           ask: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None, as_of: Optional[str] = None) -> Report:
     report = Report()
     read = opener(source, get)
     try:
@@ -386,7 +540,17 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
         report.add("anchors", True, f"{len(anchors)} reading(s) of the lab's receipt roots, {len(months)} month(s)")
     pledges = entries_of("pledge", entries)
     for entry in (pledges if every else pledges[-1:]):
-        check_pledge(entry, report, chain_rpc, post)
+        newest = entry is pledges[-1]
+        check_pledge(entry, report, chain_rpc, post, entries, (as_of or utc_now()) if newest else None)
+    check_accounts(entries, report, every)
+    check_gates(entries, report, every)
+    found_signs = entries_of("signs", entries)
+    for entry in (found_signs if every else found_signs[-1:]):
+        check_signs(read, entries, entry, report, chain_rpc, post)
+    check_disputes(read, entries, report)
+    buys = entries_of("bestbuy", entries)
+    for entry in (buys if every else buys[-1:]):
+        check_bestbuy(read, entries, entry, report)
     reported = entries_of("reports", entries)
     for entry in (reported if every else reported[-1:]):
         check_reports(read, entries, entry, report, chain_rpc, post)

@@ -19,6 +19,9 @@ dependencies = [
 dev = ["pytest>=8"]
 # The weekly note, the run doctor and the monthly red-team (see src/agoranome_inspector/models.py).
 models = ["anthropic>=2.8"]
+# Checks the EIP-191 signature on each seller's dispute (disputes.py); without it the signer is still checked
+# against the row's pay-to, and anyone can check the signature with any EIP-191 library.
+eth = ["eth-account>=0.13"]
 
 [project.scripts]
 agoranome-inspector = "agoranome_inspector.cli:main"

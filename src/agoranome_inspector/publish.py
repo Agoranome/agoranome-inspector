@@ -48,6 +48,9 @@ BOOK = "book.jsonl"
 HEAD = "head.json"
 PLEDGE = "pledge.json"
 SHELVES = "shelves.json"
+ACCOUNTS = "accounts.json"
+DISPUTES = "disputes.json"
+GATES = "gates.json"
 
 
 def _write(path: Path, data: bytes) -> str:
@@ -205,6 +208,41 @@ def write_pledge(site: Path, book: Book) -> Optional[Dict[str, Any]]:
     return data
 
 
+def write_accounts(site: Path, book: Book) -> Optional[Dict[str, Any]]:
+    """accounts.json: every statement and every month's close (accounts.py), once the book holds one."""
+    from agoranome_inspector import accounts as accounts_lib
+
+    entries = book.entries()
+    if not any(x.get("kind") in ("statement", "close") for x in entries):
+        return None
+    data = accounts_lib.summary(entries)
+    _write(site / ACCOUNTS, canonical(data) + b"\n")
+    return data
+
+
+def write_disputes(site: Path, book: Book) -> Optional[Dict[str, Any]]:
+    """disputes.json: every seller's dispute with its answer (disputes.py), once the book holds one."""
+    from agoranome_inspector import disputes as disputes_lib
+
+    entries = book.entries()
+    if not any(x.get("kind") == "dispute" for x in entries):
+        return None
+    data = disputes_lib.summary(entries)
+    _write(site / DISPUTES, canonical(data) + b"\n")
+    return data
+
+
+def write_gates(site: Path, book: Book) -> Optional[Dict[str, Any]]:
+    """gates.json: the newest reading of the grand concept's gates, completed from the accounts (gates.py)."""
+    from agoranome_inspector import gates as gates_lib
+
+    data = gates_lib.summary(book.entries())
+    if data is None:
+        return None
+    _write(site / GATES, canonical(data) + b"\n")
+    return data
+
+
 def write_shelves(site: Path, book: Book) -> Optional[Dict[str, Any]]:
     """shelves.json: the newest shelf report card, with where it sits in the book."""
     found = entries_of("shelf", book.entries())
@@ -268,9 +306,15 @@ def _pledge_section(entries) -> str:
     usd = pledge_lib.usd
     cause = (f"to the cause's address <code>{e(body['recipient'])}</code>" if body.get("recipient") else
              "to a cause not named yet; what is owed is kept, shown here and paid once one is named")
+    from agoranome_inspector import accounts as accounts_lib
+
+    closed = accounts_lib.owed_by_period(entries)
+    standing = {r["period"]: r for r in pledge_lib.standing(body["months"], owed_by_period=closed)}
+    words = {"kept": "kept", "carried": "carried (under $1, paid by the quarter's end)", "owed": "owed"}
     rows = "".join(
-        f"<tr><td>{e(m['period'])}</td><td>{usd(m['counted_atomic'])}</td><td>{usd(m['owed_atomic'])}</td>"
-        f"<td>{usd(m['given_atomic'])}</td><td>{e(m['status'])}</td><td>"
+        f"<tr><td>{e(m['period'])}</td><td>{usd(m['counted_atomic'])}</td>"
+        f"<td>{usd(standing[m['period']]['owed_atomic'])}{' (closed)' if m['period'] in closed else ''}</td>"
+        f"<td>{usd(m['given_atomic'])}</td><td>{e(words[standing[m['period']]['standing']])}</td><td>"
         + ", ".join(f"<code>{e(x['tx_hash'][:12])}…</code>" for x in m.get("transfers") or []) + "</td></tr>"
         for m in body["months"])
     return (f"<h2>The {int(body['pledge_bps']) / 100:g}% pledge</h2>"
@@ -278,9 +322,90 @@ def _pledge_section(entries) -> str:
             f"Base {cause}. As the lab's ledger stated it on {e(body['read_at'])}: {usd(t['counted'])} earned that "
             f"owes the pledge, {usd(t['owed'])} owed, {usd(t['given'])} given, {usd(body['outstanding_atomic'])} "
             f"outstanding. The verifier checks the arithmetic, and with <code>--chain</code> each transfer on Base: "
-            f"<a href=\"{PLEDGE}\">the figures</a>.</p>"
-            f"<table><tr><th>Month</th><th>Earned</th><th>Owed</th><th>Given</th><th>Status</th><th>Transfers</th>"
-            f"</tr>{rows}</table>\n")
+            f"<a href=\"{PLEDGE}\">the figures</a>. A month that owes under $1 carries over and shows as owed; "
+            f"nothing is carried past the end of a quarter (rule <code>{pledge_lib.CARRY_RULE}</code>). A closed month "
+            f"owes {int(body['pledge_bps']) / 100:g}% of every source, not only x402: "
+            f"<a href=\"{ACCOUNTS}\">the accounts</a>.</p>"
+            f"<table><tr><th>Month</th><th>Earned on x402</th><th>Owed</th><th>Given</th><th>Standing</th>"
+            f"<th>Transfers</th></tr>{rows}</table>\n")
+
+
+def _bestbuy_section(entries) -> str:
+    found = entries_of("bestbuy", entries)
+    if not found:
+        return ""
+    s = found[-1]["body"]["summary"]
+    signs = entries_of("signs", entries)
+    signed = ""
+    if signs:
+        t = signs[-1]["body"]["totals"]
+        signed = (f" Delivery signs from the chain this week: {t['counted']:,} x402 sellers counted, "
+                  f"{t['with_repeat_payers']:,} with buyers who came back (rule <code>signs-1</code>).")
+    return (f"<h2>Best buys</h2><p>One list per kind of job, {s['listings']:,} endpoints in {s['categories']} kinds, "
+            f"with the real price and the delivery signs side by side.{signed} "
+            f"<a href=\"best-buy/index.html\">The best-buy sheets</a>.</p>\n")
+
+
+def _disputes_section(entries) -> str:
+    from agoranome_inspector import disputes as disputes_lib
+
+    if not any(x.get("kind") == "dispute" for x in entries):
+        return ""
+    s = disputes_lib.summary(entries)
+    return (f"<h2>Disputes</h2><p>A seller can dispute its row, signing with the address the row asks payment to; "
+            f"the dispute and the answer both go in the book. So far {s['count']:,} dispute(s): {s['upheld']:,} "
+            f"upheld, {s['open']:,} waiting for an answer. <a href=\"{DISPUTES}\">Every dispute and answer</a>. "
+            f"To file one: <code>POST https://api.agoranome.com/disputes</code>.</p>\n")
+
+
+def _gates_section(entries) -> str:
+    from agoranome_inspector import gates as gates_lib
+    from agoranome_inspector import pledge as pledge_lib
+
+    s = gates_lib.summary(entries)
+    if s is None:
+        return ""
+    e = html.escape
+    names = {"outside_use": "Outside use", "data_goods": "Data goods", "earned": "Earned money (the lab's receipts)",
+             "ask_test": "Ask test"}
+    rows = "".join(f"<tr><td>{names[i]}</td><td>{e(g['status'])}</td><td>{e(g['by'] or '')}</td></tr>"
+                   for i, g in s["gates"].items())
+    month = s.get("earned_month")
+    money = (f" The newest closed month, {e(month['period'])}, earned {pledge_lib.usd(month['earned_atomic'])} from "
+             f"every source counted as earned, against a bar of {pledge_lib.usd(month['bar_atomic'])}."
+             if month else "")
+    return (f"<h2>Gates</h2><p>The plan's stop rules, read from the lab on {e(str(s.get('as_of') or ''))} and "
+            f"completed from the accounts. The money gate stands at <strong>{e(s['money'])}</strong>.{money} "
+            f"A grant never passes it. <a href=\"{GATES}\">The reading</a>.</p>"
+            f"<table><thead><tr><th>Gate</th><th>Status</th><th>By</th></tr></thead><tbody>{rows}</tbody></table>\n")
+
+
+def _accounts_section(entries) -> str:
+    from agoranome_inspector import accounts as accounts_lib
+    from agoranome_inspector import pledge as pledge_lib
+
+    data = accounts_lib.summary(entries)
+    if not data["statements"] and not data["closes"]:
+        return ""
+    e = html.escape
+    usd = pledge_lib.usd
+    rows = "".join(
+        f"<tr><td>{e(c['period'])}</td><td>"
+        + "; ".join(f"{e(s['source'])}{' from ' + e(s['from']) if s.get('from') else ''} {usd(s['usd_atomic'])}"
+                    f"{'' if s['earned'] else ' (not earned)'}" for s in c["sources"])
+        + f"</td><td>{usd(c['earned_atomic'])}</td><td>{usd(c['owed_atomic'])}</td></tr>" for c in data["closes"])
+    named = []
+    if data["licensees"]:
+        named.append("licensees: " + ", ".join(e(x) for x in data["licensees"]))
+    if data["funders"]:
+        named.append("funders: " + ", ".join(e(x) for x in data["funders"]))
+    return (f"<h2>The accounts</h2><p>What Agoranome earned, month by month and source by source: receipts on the "
+            f"chain, and statements for money that came another way (a merchant's payout, a licence, a grant), each "
+            f"with the hash of its document. No sponsor's money is taken. {'; '.join(named) + '. ' if named else ''}"
+            f"<a href=\"{ACCOUNTS}\">Every statement and close</a> (rules <code>{accounts_lib.RULE}</code> and "
+            f"<code>{accounts_lib.CLOSE_RULE}</code>).</p>"
+            + (f"<table><tr><th>Month</th><th>Sources</th><th>Earned</th><th>Owed the cause</th></tr>{rows}</table>\n"
+               if rows else ""))
 
 
 def write_index(site: Path, book: Book) -> None:
@@ -303,7 +428,9 @@ def write_index(site: Path, book: Book) -> None:
                      f"{links_lib.PLATFORM_HOSTS} hosts share are a platform's and link nobody. A link is a fact "
                      f"beside the rows, never a verdict: <a href=\"{e(link_entries[-1]['body']['file'])}\">the "
                      f"links and their evidence</a>.</p>\n")
-    sections += _pick_section(entries) + _shelf_section(entries) + _pledge_section(entries)
+    sections += (_pick_section(entries) + _bestbuy_section(entries) + _shelf_section(entries)
+                 + _disputes_section(entries) + _pledge_section(entries) + _accounts_section(entries)
+                 + _gates_section(entries))
     rows = "".join(
         f"<tr><td>{e(sheet_lib.market_of(x['body']))}</td><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
         f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a></td>"
