@@ -52,7 +52,7 @@ METHOD = [
     "network: testnet_only when every live payable option is on a test network, else mainnet.",
     "kept: true when the price is as_listed or below_listed and the pay_to is as_listed; false when the price "
     "is above_listed or listed_option_missing or the pay_to is different; null when the endpoint gave no "
-    "payable offer or the listing states no price.",
+    "payable offer, or the listing states no price or no pay-to address to compare.",
     "asked: the live option the comparison used (the first compared listed option's cheapest match), or the "
     "first live option when none could be compared.",
     "Networks are compared as CAIP-2 ids (x402 v1 names are mapped), EVM addresses in lower case, Solana "

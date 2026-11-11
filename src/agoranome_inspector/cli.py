@@ -146,7 +146,6 @@ def cmd_publish(args) -> int:
 
 
 def cmd_run(args) -> int:
-    from agoranome_inspector import sheet as sheet_lib
     from agoranome_inspector.measure import run
     from agoranome_inspector.publish import publish
 
