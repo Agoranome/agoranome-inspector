@@ -139,9 +139,11 @@ published rule. Free, under {e(LICENCE)}. Every figure here is signed in the ope
 <h2>Sheet {e(newest['id'])}</h2>
 <p>{s.get("rows", 0):,} listings from {s.get("hosts", 0):,} sellers. What they answered:</p>
 <ul>{answers}</ul>
-<p>Of the {payable:,} payable offers: {price.get('as_listed', 0) + price.get('below_listed', 0):,} asked no more than
-their listed price, {price.get('above_listed', 0):,} asked more, and {pay_to.get('different', 0):,} named a pay-to
-address other than the listed one. {s.get('fair_offer', 0):,} carried a Fair Offer block.</p>
+<p>Of the {payable:,} payable offers, {price.get('as_listed', 0) + price.get('below_listed', 0):,} asked no more than
+their listed price and {price.get('above_listed', 0):,} asked more; {pay_to.get('different', 0):,} named a pay-to
+address other than the listed one; {price.get('varies', 0) + pay_to.get('varies', 0):,} verdicts varied between two
+asks and are not held against anyone. A difference from the listing can mean the listing is out of date.
+{s.get('fair_offer', 0):,} carried a Fair Offer block.</p>
 <h2>Every sheet</h2>
 <table><tr><th>Sheet</th><th>Rows</th><th>Files</th><th>Merkle root</th></tr>{rows}</table>
 <h2>Check it yourself</h2>

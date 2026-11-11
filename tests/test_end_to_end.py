@@ -23,7 +23,7 @@ def clock(value="2026-11-16T06:00:00Z"):
 
 def measure(market, run_id, publish_index_counts=False):
     found = run(run_id, reader=market.reader(), fetcher=market.fetcher(),
-                settings=Settings(concurrency=4, host_pause=0, retry_pause=0), clock=clock(f"{run_id}T06:00:00Z"))
+                settings=Settings(concurrency=4, host_pause=0, retry_pause=0, confirm_pause=0), clock=clock(f"{run_id}T06:00:00Z"))
     return sheet_lib.build(found["id"], found["listings"], found["seen"], index=found["index"],
                            probe=found["probe"], publish_index_counts=publish_index_counts)
 
@@ -46,7 +46,7 @@ def test_the_sheet_judges_each_seller(site):
     found = rows(sheet)
     assert "quiet.example" not in found                       # two payers: not real demand
     assert len(found) == 8
-    assert found["honest.example"]["verdict"]["kept"] is True
+    assert found["honest.example"]["verdict"]["matches_listing"] is True
     assert found["honest.example"]["seen"]["fair_offer"] == "0.3"
     assert found["pricey.example"]["verdict"]["price"] == "above_listed"
     assert found["swap.example"]["verdict"]["pay_to"] == "different"
@@ -57,7 +57,7 @@ def test_the_sheet_judges_each_seller(site):
     assert found["down.example"]["verdict"]["answer"] == "unreachable"
     assert found["down.example"]["seen"]["attempts"] == 2
     assert found["plain.example"]["verdict"]["answer"] == "declined"
-    assert sheet["summary"]["kept"] == {"false": 2, "null": 4, "true": 2}
+    assert sheet["summary"]["matches_listing"] == {"false": 2, "null": 4, "true": 2}
     assert not any("plain.example" in a for a in market.asked)
 
 
@@ -118,7 +118,7 @@ def _rewrite(path: Path, edit):
 def test_an_edited_row_is_caught(site):
     path, _, _, _ = site
     _rewrite(path / "sheets" / "2026-11-16.json",
-             lambda s: s["rows"][0]["verdict"].update(kept=True, price="as_listed"))
+             lambda s: s["rows"][0]["verdict"].update(matches_listing=True, price="as_listed"))
     report = verify(str(path))
     assert not report.ok
     assert any(c["check"].endswith("file") and not c["ok"] for c in report.checks)
@@ -127,7 +127,7 @@ def test_an_edited_row_is_caught(site):
 def test_an_edited_row_with_a_matching_book_still_fails_the_signature(site):
     path, _, _, _ = site
     sheet_path = path / "sheets" / "2026-11-16.json"
-    _rewrite(sheet_path, lambda s: s["rows"][0]["verdict"].update(kept=True))
+    _rewrite(sheet_path, lambda s: s["rows"][0]["verdict"].update(matches_listing=True))
     book = path / "book.jsonl"
     lines = book.read_text().splitlines()
     entry = json.loads(lines[1])
@@ -143,7 +143,7 @@ def test_a_verdict_that_does_not_follow_from_its_row_is_caught(tmp_path):
     signer = Signer.generate()
     sheet = measure(standard_market(), "2026-11-16")
     target = rows(sheet)["pricey.example"]
-    target["verdict"] = dict(target["verdict"], price="as_listed", kept=True)
+    target["verdict"] = dict(target["verdict"], price="as_listed", matches_listing=True)
     sheet["summary"] = sheet_lib.summarize(sheet["rows"])
     publish(str(tmp_path), sheet, signer)     # signed, so only the rule can catch it
     report = verify(str(tmp_path))
@@ -211,3 +211,20 @@ def test_recheck_reports_agreement_without_failing(site):
     report = verify(str(path), recheck_n=20, ask=lambda url: probe(fetcher, url, retry_pause=0, sleep=lambda s: None))
     assert report.ok
     assert report.recheck["asked"] == 7 and "https://pricey.example/search" in report.recheck["differ"]
+
+
+def test_a_difference_is_held_only_when_the_second_ask_gives_it_too(tmp_path):
+    market = standard_market()
+    answers = iter(["10000", "5000"])
+    market.sellers["pricey.example"] = lambda request: honest(next(answers))(request)
+    sheet = measure(market, "2026-11-16")
+    found = rows(sheet)
+    assert found["pricey.example"]["seen"]["again"] is not None
+    assert (found["pricey.example"]["verdict"]["price"], found["pricey.example"]["verdict"]["matches_listing"]) == (
+        "varies", None)
+    assert found["swap.example"]["seen"]["again"] is not None
+    assert found["swap.example"]["verdict"]["pay_to"] == "different"       # both asks named the other address
+    assert "again" not in found["honest.example"]["seen"]                  # an offer that matches is asked once
+    assert sheet["summary"]["confirmed"] == 2
+    publish(str(tmp_path), sheet, Signer.generate())
+    assert verify(str(tmp_path)).ok

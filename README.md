@@ -56,24 +56,34 @@ function of the other two, so anyone can judge a row again.
   run. The index is the list of where to look. Every verdict comes from the seller's own endpoint.
 - **How each listing is asked.** An unpaid GET, then an empty JSON POST if the GET did not answer 402, from a
   public address, following no redirect. A listing that gives no payable offer is asked once more a few seconds
-  later, and the second answer is kept. Nothing is ever paid.
+  later, and the second answer is kept. A listing whose offer differs from its listing in a way that would count
+  against the seller (a higher price, a missing option, another pay-to address) is also asked once more, and both
+  answers are kept. Nothing is ever paid.
 - **answer.** `payable` when the endpoint answered 402 with at least one payment option naming a network, an
   asset, an amount and a pay-to address (the x402 v2 `PAYMENT-REQUIRED` header or the v1 body).
   `unreadable_offer` for a 402 without one, `no_payment_asked` for a 2xx, `gone` for 404 or 410, `http_4xx` and
   `http_5xx` for other errors, `unreachable` when no HTTP answer came, `declined` when the URL is not public
   https (so it was not asked), `not_asked` when the run reached its per-host cap or time budget first, and
   `other` for anything else.
-- **price.** Of the listing's options, those offered live on the same network and asset are compared, each with
-  the cheapest live option on that network and asset. `above_listed` when any asks more than listed, else
-  `below_listed` when any asks less, else `as_listed`. `listed_option_missing` when no listed option is offered
-  live on its network and asset. `not_listed` when the listing states no usable price.
-- **pay_to.** `as_listed` when every compared listed option with a pay-to address is offered live paying that
-  address, `different` when any is not.
-- **network.** `testnet_only` when every live payable option is on a test network, else `mainnet`.
-- **kept.** `true` when the price is `as_listed` or `below_listed` and the pay-to is `as_listed`. `false` when
-  the price is `above_listed` or `listed_option_missing`, or the pay-to is `different`. `null` otherwise.
-- **Comparing.** Networks as CAIP-2 ids (x402 v1 names are mapped), EVM addresses in lower case, Solana
-  addresses as written, amounts as whole atomic units.
+- **Comparing one listed option.** Its candidates are the live options on the same network, asset and scheme
+  (on the same network and asset, any scheme, when none has the same scheme). Its price is `as_listed` when a
+  candidate asks exactly the listed amount, `below_listed` when the cheapest asks less, `above_listed` when every
+  candidate asks more. Its pay-to is `as_listed` when a candidate pays the listed address, `different` when none
+  does.
+- **price of the row.** `listed_option_missing` when no listed option has a candidate, `not_listed` when the
+  listing states no usable price, else `above_listed` when any compared option is above, else `below_listed`
+  when any is below, else `as_listed`.
+- **pay_to of the row.** `different` when any compared option is different, else `as_listed`.
+- **Confirmation.** When the endpoint was asked twice, a price or pay-to that the two answers do not both give
+  is `varies`, and it is not held against the seller.
+- **matches_listing.** `true` when the price is `as_listed` or `below_listed` and the pay-to is `as_listed`.
+  `false` when the price is `above_listed` or `listed_option_missing`, or the pay-to is `different`. `null`
+  otherwise. A `false` says the live offer differs from the listing, which can also mean the listing is out of
+  date. It is not a finding of bad faith.
+- **differs.** Up to 8 listed options that differ, each with its listed and live amount and address, so a seller
+  can see exactly what was compared.
+- **Comparing.** Networks as CAIP-2 ids (x402 v1 names are mapped, and a reference longer than 32 characters is
+  cut to 32), EVM addresses in lower case, other addresses as written, amounts as whole atomic units.
 
 A rule never changes once a sheet is published under it. A new rule gets a new name, and each sheet names the
 rule it was judged by, so an old sheet always verifies under its own rule.

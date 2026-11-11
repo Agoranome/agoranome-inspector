@@ -67,7 +67,8 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "price": count("price"),
         "pay_to": count("pay_to"),
         "network": count("network"),
-        "kept": count("kept"),
+        "matches_listing": count("matches_listing"),
+        "confirmed": sum(1 for r in rows if (r.get("seen") or {}).get("again") is not None),
         "fair_offer": sum(1 for r in rows if (r.get("seen") or {}).get("fair_offer")),
     }
 
@@ -114,7 +115,8 @@ def to_bytes(sheet: Dict[str, Any]) -> bytes:
     return canonical(sheet) + b"\n"
 
 
-CSV_COLUMNS = ["resource", "host", "category", "answer", "price", "pay_to", "kept", "network", "listed_network",
+CSV_COLUMNS = ["resource", "host", "category", "answer", "price", "pay_to", "matches_listing", "network",
+               "listed_network",
                "listed_asset", "listed_amount", "listed_usd", "listed_pay_to", "asked_network", "asked_asset",
                "asked_amount", "asked_usd", "asked_pay_to", "fair_offer", "status", "seen_at", "leaf"]
 
@@ -127,10 +129,10 @@ def to_csv(sheet: Dict[str, Any]) -> str:
         verdict, seen = r["verdict"], r.get("seen") or {}
         listed = (r.get("listed") or [None])[0] or {}
         asked = verdict.get("asked") or {}
-        kept = verdict.get("kept")
+        matches = verdict.get("matches_listing")
         writer.writerow([
             r["resource"], r["host"], r["category"], verdict["answer"], verdict.get("price") or "",
-            verdict.get("pay_to") or "", "" if kept is None else str(kept).lower(), verdict.get("network") or "",
+            verdict.get("pay_to") or "", "" if matches is None else str(matches).lower(), verdict.get("network") or "",
             listed.get("network") or "", listed.get("asset") or "", listed.get("amount") or "",
             networks.usd(listed.get("network"), listed.get("asset"), listed.get("amount")) or "",
             listed.get("pay_to") or "", asked.get("network") or "", asked.get("asset") or "",

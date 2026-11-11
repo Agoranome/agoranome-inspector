@@ -14,6 +14,10 @@
 
 """One run of the measurer: read the index, choose the listings with real demand, ask each one unpaid.
 
+A listing whose first answer differs from its listing in a way that counts against the seller (a higher price,
+a missing option, another pay-to address) is asked again a few seconds later, and the rule holds a difference
+against the seller only when both answers give it.
+
 Politeness: one request at a time to any host, a pause between a host's listings, at most `per_host` listings
 of a host (its busiest first), hosts in order of demand, and a time budget for the whole run. A listing the run
 did not reach is kept as not asked, never dropped, so the sheet says how much of the market it covers.
@@ -31,7 +35,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from agoranome_inspector.bazaar import IndexReader, REAL_DEMAND_PAYERS, select
 from agoranome_inspector.fetch import SafeFetcher
-from agoranome_inspector.probe import probe
+from agoranome_inspector.probe import ask, probe
+from agoranome_inspector.rule import judge, needs_confirmation
 
 logger = logging.getLogger("inspector.measure")
 
@@ -49,6 +54,7 @@ class Settings:
     host_pause: float = 0.5        # seconds between two requests to the same host
     budget_seconds: float = 3 * 3600
     retry_pause: float = 2.0
+    confirm_pause: float = 5.0     # before asking again an endpoint whose offer differs from its listing
     min_payers: int = REAL_DEMAND_PAYERS
 
 
@@ -71,8 +77,12 @@ def ask_all(listings: List[Dict[str, Any]], fetcher: SafeFetcher, settings: Sett
             if i:
                 sleep(settings.host_pause)
             try:
-                seen[listing["resource"]] = probe(fetcher, listing["resource"], retry_pause=settings.retry_pause,
-                                                  sleep=sleep, clock=clock)
+                found = probe(fetcher, listing["resource"], retry_pause=settings.retry_pause, sleep=sleep,
+                              clock=clock)
+                if needs_confirmation(judge(listing["listed"], found)):
+                    sleep(settings.confirm_pause)
+                    found["again"] = {"at": clock(), **ask(fetcher, listing["resource"])}
+                seen[listing["resource"]] = found
             except Exception as e:   # one listing lost must not stop the host's others
                 logger.warning(f"probe of {listing['resource']} failed: {type(e).__name__}")
 

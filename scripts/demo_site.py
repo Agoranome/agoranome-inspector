@@ -21,7 +21,7 @@ from fakes import OTHER, honest, standard_market  # noqa: E402
 
 def week(market, run_id):
     found = run(run_id, reader=market.reader(), fetcher=market.fetcher(),
-                settings=Settings(concurrency=1, host_pause=0, retry_pause=0), clock=lambda: f"{run_id}T06:00:00Z")
+                settings=Settings(concurrency=1, host_pause=0, retry_pause=0, confirm_pause=0), clock=lambda: f"{run_id}T06:00:00Z")
     found["index"]["url"] = "https://index.example/discovery/resources (a fake index)"
     return sheet_lib.build(found["id"], found["listings"], found["seen"], index=found["index"], probe=found["probe"])
 
