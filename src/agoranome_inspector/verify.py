@@ -235,6 +235,24 @@ def check_links(read: Callable[[str], bytes], entries: List[Dict[str, Any]], ent
                else "the links do not match the sheets")
 
 
+def check_pledge(entry: Dict[str, Any], report: Report, chain_rpc: Optional[str] = None,
+                 post: Optional[Callable[[str, bytes], bytes]] = None) -> None:
+    """The pledge's arithmetic in one entry, and with an RPC its transfers on the chain (pledge.py)."""
+    from agoranome_inspector import pledge as pledge_lib
+
+    body = entry["body"]
+    label = f"pledge {entry['seq']}"
+    problems = pledge_lib.check(body)
+    if chain_rpc and not problems:
+        problems = pledge_lib.check_transfers(body, chain_rpc, post or pledge_lib.http_post)
+    t = body.get("totals") or {}
+    transfers = sum(len(m.get("transfers") or []) for m in body.get("months") or [])
+    report.add(label, not problems,
+               f"{len(body.get('months') or [])} month(s): {pledge_lib.usd(t.get('owed', 0))} owed at "
+               f"{int(body.get('pledge_bps', 0)) / 100:g}%, {pledge_lib.usd(t.get('given', 0))} given in {transfers} "
+               f"transfer(s){', checked on the chain' if chain_rpc else ''}" if not problems else "; ".join(problems))
+
+
 def recheck(sheet: Dict[str, Any], n: int, ask: Callable[[Dict[str, Any]], Dict[str, Any]],
             rng: Optional[random.Random] = None) -> Dict[str, Any]:
     rng = rng or random.Random()
@@ -253,6 +271,7 @@ def recheck(sheet: Dict[str, Any], n: int, ask: Callable[[Dict[str, Any]], Dict[
 
 def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[str] = None,
            since: Optional[Dict[str, Any]] = None, every: bool = False, recheck_n: int = 0,
+           chain_rpc: Optional[str] = None, post: Optional[Callable[[str, bytes], bytes]] = None,
            get: Callable[[str], bytes] = http_get,
            ask: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None) -> Report:
     report = Report()
@@ -284,6 +303,17 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
     if anchors:
         months = {m["period"] for a in anchors for m in a["body"].get("roots") or []}
         report.add("anchors", True, f"{len(anchors)} reading(s) of the lab's receipt roots, {len(months)} month(s)")
+    pledges = entries_of("pledge", entries)
+    for entry in (pledges if every else pledges[-1:]):
+        check_pledge(entry, report, chain_rpc, post)
+    shelves = entries_of("shelf", entries)
+    for entry in (shelves if every else shelves[-1:]):
+        from agoranome_inspector import shelf as shelf_lib
+
+        problems = shelf_lib.check(entry["body"], entries)
+        report.add(f"shelf {entry['seq']}", not problems,
+                   ", ".join(f"{c['name']} {c['grade']}" for c in entry["body"].get("shelves") or [])
+                   + f" (rule {entry['body'].get('rule')}, recomputed)" if not problems else "; ".join(problems))
     if recheck_n and sheet is not None and report.ok:
         if ask is None:
             from agoranome_inspector import mpp

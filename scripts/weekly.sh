@@ -52,6 +52,13 @@ for market in ${RUN_MARKETS:-x402 mpp}; do
 done
 
 if [ -f "$SITE/book.jsonl" ]; then
+  # The shelf report card, graded again from the newest sheets (a new book entry only when something changed).
+  "$INSPECTOR" shelf "$SITE"
+  # The lab's receipt roots and the 15% pledge's figures, read from its public ledger. A ledger that can't be read,
+  # or whose figures don't add up, is left out this week with a warning: the sheets still publish.
+  if ! "$INSPECTOR" anchor-lab "$SITE" ${LAB_LEDGER:+--ledger "$LAB_LEDGER"}; then
+    echo "::warning::The lab's pledge ledger was not put in the book this week; see the log above."
+  fi
   touch "$SITE/.nojekyll"
   # A pinned first key, once Shariar has published it as the repository variable INSPECTOR_FIRST_KID.
   "$INSPECTOR" verify "$SITE" --all ${INSPECTOR_FIRST_KID:+"--key=$INSPECTOR_FIRST_KID"}

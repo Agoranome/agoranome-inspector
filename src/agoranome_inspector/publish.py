@@ -21,6 +21,9 @@ The published site is a directory any static host can serve:
   sheets/<id>.json      a sheet, canonical JSON
   sheets/<id>.csv       the same rows as a table
   changes/<id>.json     what changed since the sheet before
+  links/<id>.json       operators linked across hosts and markets
+  pledge.json           the 15% pledge as the lab's ledger states it, from the newest pledge entry
+  shelves.json          the shelf report card, from the newest shelf entry
   index.html            a plain page for people: the newest summary, every sheet, how to verify
 
 Nothing published holds a secret or the index's demand counts (unless the sheet was built to show them).
@@ -41,6 +44,8 @@ from agoranome_inspector.sheet import LICENCE
 
 BOOK = "book.jsonl"
 HEAD = "head.json"
+PLEDGE = "pledge.json"
+SHELVES = "shelves.json"
 
 
 def _write(path: Path, data: bytes) -> str:
@@ -171,6 +176,76 @@ asks and are not held against anyone. A difference from the listing can mean the
 {detail}"""
 
 
+def write_pledge(site: Path, book: Book) -> Optional[Dict[str, Any]]:
+    """pledge.json: the newest pledge entry's figures, with where it sits in the book."""
+    pledges = entries_of("pledge", book.entries())
+    if not pledges:
+        return None
+    entry = pledges[-1]
+    data = {"book_entry": {"seq": entry["seq"], "hash": entry["hash"]}, **entry["body"]}
+    _write(site / PLEDGE, canonical(data) + b"\n")
+    return data
+
+
+def write_shelves(site: Path, book: Book) -> Optional[Dict[str, Any]]:
+    """shelves.json: the newest shelf report card, with where it sits in the book."""
+    found = entries_of("shelf", book.entries())
+    if not found:
+        return None
+    entry = found[-1]
+    data = {"book_entry": {"seq": entry["seq"], "hash": entry["hash"]}, **entry["body"]}
+    _write(site / SHELVES, canonical(data) + b"\n")
+    return data
+
+
+def _shelf_section(entries) -> str:
+    found = entries_of("shelf", entries)
+    if not found:
+        return ""
+    e = html.escape
+    body = found[-1]["body"]
+    words = {"open": "Open to read", "rank": "Ranking rule published", "matches": "Listings match the live offer",
+             "delivery": "Shows delivery", "dispute": "A buyer can dispute"}
+    head = "".join(f"<th>{e(words[q])}</th>" for q in words)
+    rows = "".join(
+        f"<tr><td>{e(c['name'])}</td><td><b>{e(c['grade'])}</b> ({c['points']}/{c['of']})</td>"
+        + "".join(f"<td title=\"{e(str(c['answers'][q].get('says') or ''))}\">{e(c['answers'][q]['answer'])}</td>"
+                  for q in words) + "</tr>" for c in body["shelves"])
+    return (f"<h2>The shelves</h2><p>Where buying agents find paid endpoints, graded by the published rule "
+            f"<code>{e(body['rule'])}</code>: yes is 2 points, partly 1; A at 8 of 10, B at 6, C at 4. Four answers "
+            f"are facts from each shelf's own documents, with the source and the day read; whether listings match "
+            f"the live offer is measured from the newest sheet. A shelf that finds a fact wrong can point to its "
+            f"documents, and the correction goes in the book: <a href=\"{SHELVES}\">the card and its facts</a>.</p>"
+            f"<table><tr><th>Shelf</th><th>Grade</th>{head}</tr>{rows}</table>\n")
+
+
+def _pledge_section(entries) -> str:
+    from agoranome_inspector import pledge as pledge_lib
+
+    pledges = entries_of("pledge", entries)
+    if not pledges:
+        return ""
+    e = html.escape
+    body = pledges[-1]["body"]
+    t = body["totals"]
+    usd = pledge_lib.usd
+    cause = (f"to the cause's address <code>{e(body['recipient'])}</code>" if body.get("recipient") else
+             "to a cause not named yet; what is owed is kept, shown here and paid once one is named")
+    rows = "".join(
+        f"<tr><td>{e(m['period'])}</td><td>{usd(m['counted_atomic'])}</td><td>{usd(m['owed_atomic'])}</td>"
+        f"<td>{usd(m['given_atomic'])}</td><td>{e(m['status'])}</td><td>"
+        + ", ".join(f"<code>{e(x['tx_hash'][:12])}…</code>" for x in m.get("transfers") or []) + "</td></tr>"
+        for m in body["months"])
+    return (f"<h2>The {int(body['pledge_bps']) / 100:g}% pledge</h2>"
+            f"<p>Agoranome pledges {int(body['pledge_bps']) / 100:g}% of what it earns, sent once a month in USDC on "
+            f"Base {cause}. As the lab's ledger stated it on {e(body['read_at'])}: {usd(t['counted'])} earned that "
+            f"owes the pledge, {usd(t['owed'])} owed, {usd(t['given'])} given, {usd(body['outstanding_atomic'])} "
+            f"outstanding. The verifier checks the arithmetic, and with <code>--chain</code> each transfer on Base: "
+            f"<a href=\"{PLEDGE}\">the figures</a>.</p>"
+            f"<table><tr><th>Month</th><th>Earned</th><th>Owed</th><th>Given</th><th>Status</th><th>Transfers</th>"
+            f"</tr>{rows}</table>\n")
+
+
 def write_index(site: Path, book: Book) -> None:
     """The page a person lands on. Every figure on it is in a sheet's book entry."""
     entries = book.entries()
@@ -191,6 +266,7 @@ def write_index(site: Path, book: Book) -> None:
                      f"{links_lib.PLATFORM_HOSTS} hosts share are a platform's and link nobody. A link is a fact "
                      f"beside the rows, never a verdict: <a href=\"{e(link_entries[-1]['body']['file'])}\">the "
                      f"links and their evidence</a>.</p>\n")
+    sections += _shelf_section(entries) + _pledge_section(entries)
     rows = "".join(
         f"<tr><td>{e(sheet_lib.market_of(x['body']))}</td><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
         f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a></td>"

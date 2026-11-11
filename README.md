@@ -150,6 +150,42 @@ processor's or a facilitator's) and links nobody; it is listed with its host cou
 one market is listed with its rows in each. Every link carries its evidence. A link is a fact beside the rows,
 never a verdict: no row's verdict changes because of it. The verifier rebuilds the file from the sheets.
 
+## The shelf report card
+
+The sheets grade sellers. The shelf card grades the shelves buying agents shop from: Coinbase's x402 Bazaar, the
+same index as AWS Bedrock AgentCore's agents reach it, the MPP catalog and Skyfire's directory. By the rule
+`shelf-1`, each shelf answers five questions:
+
+| Question | How it is answered |
+| --- | --- |
+| Open: can anyone read the whole shelf, without an account? | From the shelf's own documents |
+| Rank: is the rule that orders a search published, with nothing a seller can pay for? | From its documents |
+| Matches: do the listings match what the sellers ask when asked? | Measured: the share of payable offers judged on price that asked no more than listed (and, on x402, to the listed pay-to), from the newest sheet; yes at 95%, partly at 80% |
+| Delivery: does the shelf show whether a seller delivers? | From its documents |
+| Dispute: can a buyer dispute a charge through the shelf? | From its documents |
+
+Yes is 2 points, partly 1, no or unknown 0; A at 8 of 10, B at 6, C at 4, D below. Each fact carries its source and
+the day it was read, and is a plain statement of what was read. A shelf that finds a fact wrong can point to its
+documents: the correction is a new entry and the card is graded again. `agoranome-inspector shelf <site>` adds an
+entry only when a fact or a sheet behind the card changed, and the verifier recomputes the card from the entry and
+the sheets the book holds. The card is `shelves.json` on the site.
+
+## The 15% pledge
+
+Agoranome pledges 15% of what it earns to a public cause, paid once a month from its own receiving address to the
+cause's public address in USDC on Base. The lab's ledger (`/impact/ledger`) states each month's settled revenue,
+the part that owes the pledge, what is owed and the transfers made. Each weekly run, `anchor-lab` copies the
+figures into the book as a `pledge` entry, with a hash of the page as read, whenever they changed. Three checks:
+
+1. owed = ceil(counted x 1500 / 10000) for each month, the lab's own rule;
+2. given = the sum of the month's verified transfers, and a month is `kept` exactly when given >= owed;
+3. with `verify --chain <Base RPC URL>`, each transfer's transaction holds a USDC Transfer to the cause's address
+   of at least its stated amount.
+
+Figures that fail the first two checks are refused, not signed. The figures are the lab's: the inspector checks
+their arithmetic and the transfers, and `verify-receipt` checks any receipt against its month's root. Until a cause
+is named, what is owed is kept and shown as outstanding. The figures are `pledge.json` on the site.
+
 ## The open book
 
 A JSON Lines file, `book.jsonl`, one entry a line, that only grows:
@@ -166,8 +202,9 @@ A JSON Lines file, `book.jsonl`, one entry a line, that only grows:
   force, hands over to a new key. A key's `kid` is its RFC 7638 thumbprint.
 - Kinds: `key`; `sheet` (the file, its SHA-256, the Merkle root of its rows, the count and the summary); `changes`;
   `links` (the operator links, from the newest sheet of each market);
-  `anchor` (the lab's monthly receipt roots as read on a day); `note` (a correction, a dispute and its answer, a
-  change of method). Nothing is edited or removed. A correction is a new entry.
+  `anchor` (the lab's monthly receipt roots as read on a day); `pledge` (the 15% pledge's figures as the lab's
+  ledger states them); `shelf` (the shelf report card, its facts and the sheets it was measured from); `note` (a
+  correction, a dispute and its answer, a change of method). Nothing is edited or removed. A correction is a new entry.
 
 The Merkle tree is the lab's pledge ledger construction, so one verifier proves a sheet row and a lab receipt:
 
@@ -184,7 +221,7 @@ book. From then on a receipt's proof from the lab must fold into the root the bo
 ## The published site
 
 Plain files that any static host can serve: `book.jsonl`, `head.json`, `sheets/<id>.json`, `sheets/<id>.csv`,
-`changes/<id>.json`, `links/<id>.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
+`changes/<id>.json`, `links/<id>.json`, `shelves.json`, `pledge.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
 compares a sheet with the sheet just before it in the same market, and the verifier checks that it does. With no
 `--id`, `verify` checks the newest sheet of each market.
 
@@ -194,7 +231,8 @@ compares a sheet with the sheet just before it in the same market, and the verif
 agoranome-inspector keygen --out inspector-key.pem        # keep it secret; publish the kid it prints
 export INSPECTOR_SIGNING_KEY="$(cat inspector-key.pem)"   # or pass --key-file
 agoranome-inspector run site/ --private private/          # read the index, ask, judge, publish
-agoranome-inspector anchor-lab site/                      # optional: join the lab's receipt roots
+agoranome-inspector shelf site/                           # grade the shelves from the newest sheets
+agoranome-inspector anchor-lab site/                      # the lab's receipt roots and the pledge's figures
 ```
 
 `run` is polite by default: one request at a time to any host, half a second between a host's listings, at most

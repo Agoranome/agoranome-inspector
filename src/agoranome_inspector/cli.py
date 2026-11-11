@@ -15,7 +15,7 @@
 """The command line.
 
 For anyone:
-  verify SITE [--id ID] [--all] [--key KID] [--since SEQ:HASH] [--recheck N] [--json]
+  verify SITE [--id ID] [--all] [--key KID] [--since SEQ:HASH] [--recheck N] [--chain RPC] [--json]
   proof SITE --resource URL [--id ID]
   verify-receipt SITE PROOF            a receipt's proof from the lab's ledger (URL or file)
 
@@ -25,7 +25,8 @@ For the inspector's operator:
   sheet RUN.json --out SHEET.json      judge the run into a sheet
   publish SITE SHEET.json              put the sheet and its change log into the book
   run SITE --private DIR               measure, sheet and publish in one go
-  anchor-lab SITE                      copy the lab's monthly receipt roots into the book
+  anchor-lab SITE                      copy the lab's monthly receipt roots and pledge figures into the book
+  shelf SITE                           grade the shelves (the Bazaar, AgentCore, MPP, Skyfire) into the book
   note SITE TEXT                       a note in the book (a correction, a dispute and its answer)
 """
 
@@ -57,7 +58,7 @@ def cmd_verify(args) -> int:
     from agoranome_inspector.verify import verify
 
     report = verify(args.site, args.id, pinned_kid=args.key, since=_since(args.since), every=args.all,
-                    recheck_n=args.recheck)
+                    recheck_n=args.recheck, chain_rpc=args.chain)
     if args.json:
         print(json.dumps({"ok": report.ok, "checks": report.checks, "recheck": report.recheck}, indent=2))
     else:
@@ -185,11 +186,58 @@ def cmd_anchor_lab(args) -> int:
     from agoranome_inspector.book import Book, utc_now
     from agoranome_inspector.publish import BOOK, write_head
 
+    from agoranome_inspector import pledge
+    from agoranome_inspector.book import entries_of
+    from agoranome_inspector.publish import write_index, write_pledge
+
     raw = read_ledger(args.ledger)
-    book = Book(str(Path(args.site) / BOOK))
-    entry = book.append(_key(args), "anchor", anchor_body(args.ledger, raw, utc_now()))
-    write_head(Path(args.site), book)
-    print(json.dumps({"seq": entry["seq"], "roots": entry["body"]["roots"]}))
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    signer = _key(args)
+    read_at = utc_now()
+    entry = book.append(signer, "anchor", anchor_body(args.ledger, raw, read_at))
+    out = {"seq": entry["seq"], "roots": entry["body"]["roots"]}
+    # The pledge's figures, once the ledger publishes them, and only when they changed since the last reading.
+    body = pledge.pledge_body(args.ledger, raw, read_at)
+    if body is not None:
+        problems = pledge.check(body)
+        if problems:
+            print("the lab's pledge figures do not add up, so they are not put in the book: " + "; ".join(problems),
+                  file=sys.stderr)
+            return 3
+        last = entries_of("pledge", book.entries())
+        if not last or pledge.figures_digest(last[-1]["body"]) != pledge.figures_digest(body):
+            kept = book.append(signer, "pledge", body)
+            out["pledge"] = {"seq": kept["seq"], "months": len(body["months"]), "owed": body["totals"]["owed"],
+                             "given": body["totals"]["given"]}
+        write_pledge(site, book)
+        write_index(site, book)
+    write_head(site, book)
+    print(json.dumps(out))
+    return 0
+
+
+def cmd_shelf(args) -> int:
+    from agoranome_inspector import shelf
+    from agoranome_inspector.book import Book, entries_of
+    from agoranome_inspector.canonical import digest
+    from agoranome_inspector.publish import BOOK, write_head, write_index, write_shelves
+
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    body = shelf.shelf_body(entries)
+    last = entries_of("shelf", entries)
+    # A new entry only when a fact or a sheet behind the card changed.
+    if not last or digest({k: last[-1]["body"].get(k) for k in ("facts", "sheets")}) != \
+            digest({k: body.get(k) for k in ("facts", "sheets")}):
+        entry = book.append(_key(args), "shelf", body)
+        print(json.dumps({"seq": entry["seq"], "grades": {c["shelf"]: c["grade"] for c in body["shelves"]}}))
+    else:
+        print(json.dumps({"unchanged": True}))
+    write_shelves(site, book)
+    write_index(site, book)
+    write_head(site, book)
     return 0
 
 
@@ -264,6 +312,7 @@ def parser() -> argparse.ArgumentParser:
     v.add_argument("--key", help="the first signing key's kid, as published elsewhere")
     v.add_argument("--since", help="an entry you kept earlier, as SEQ:HASH, that must still be in the book")
     v.add_argument("--recheck", type=int, default=0, help="ask N rows' endpoints again, unpaid")
+    v.add_argument("--chain", metavar="RPC", help="a Base RPC URL: check the pledge's transfers on the chain")
     v.add_argument("--json", action="store_true")
     v.set_defaults(func=cmd_verify)
 
@@ -319,11 +368,16 @@ def parser() -> argparse.ArgumentParser:
     measuring(r)
     r.set_defaults(func=cmd_run)
 
-    a = sub.add_parser("anchor-lab", help="copy the lab's monthly receipt roots into the book")
+    a = sub.add_parser("anchor-lab", help="copy the lab's monthly receipt roots and pledge figures into the book")
     a.add_argument("site")
     a.add_argument("--ledger", default="https://api.agoranome.com/impact/ledger")
     a.add_argument("--key-file")
     a.set_defaults(func=cmd_anchor_lab)
+
+    sh = sub.add_parser("shelf", help="grade the shelves machines shop from, by the rule shelf-1")
+    sh.add_argument("site")
+    sh.add_argument("--key-file")
+    sh.set_defaults(func=cmd_shelf)
 
     n = sub.add_parser("note", help="a note in the book")
     n.add_argument("site")
