@@ -15,9 +15,12 @@
 """The command line.
 
 For anyone:
-  verify SITE [--id ID] [--all] [--key KID] [--since SEQ:HASH] [--recheck N] [--json]
+  verify SITE [--id ID] [--all] [--key KID] [--since SEQ:HASH] [--recheck N] [--chain RPC] [--json]
   proof SITE --resource URL [--id ID]
   verify-receipt SITE PROOF            a receipt's proof from the lab's ledger (URL or file)
+
+  pick SITE JOB [--budget USD] [--market M]   the fair pick: endpoints for a job, by the published rule pick-1
+  mcp [SITE]                           the fair pick and the sheet's rows as MCP tools (stdio)
 
 For the inspector's operator:
   keygen --out FILE                    a new signing key (keep it secret; publish the kid it prints)
@@ -25,7 +28,8 @@ For the inspector's operator:
   sheet RUN.json --out SHEET.json      judge the run into a sheet
   publish SITE SHEET.json              put the sheet and its change log into the book
   run SITE --private DIR               measure, sheet and publish in one go
-  anchor-lab SITE                      copy the lab's monthly receipt roots into the book
+  anchor-lab SITE                      copy the lab's monthly receipt roots and pledge figures into the book
+  shelf SITE                           grade the shelves (the Bazaar, AgentCore, MPP, Skyfire) into the book
   note SITE TEXT                       a note in the book (a correction, a dispute and its answer)
 """
 
@@ -38,6 +42,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from agoranome_inspector import __version__
+
+DEFAULT_SITE = "https://agoranome.github.io/agoranome-inspector/"
 
 
 def _key(args) -> "object":
@@ -57,7 +63,7 @@ def cmd_verify(args) -> int:
     from agoranome_inspector.verify import verify
 
     report = verify(args.site, args.id, pinned_kid=args.key, since=_since(args.since), every=args.all,
-                    recheck_n=args.recheck)
+                    recheck_n=args.recheck, chain_rpc=args.chain)
     if args.json:
         print(json.dumps({"ok": report.ok, "checks": report.checks, "recheck": report.recheck}, indent=2))
     else:
@@ -87,6 +93,87 @@ def cmd_verify_receipt(args) -> int:
     found = check_receipt(json.loads(raw), entries_of("anchor", entries))
     print(json.dumps(found, indent=2))
     return 0 if found["ok"] else 1
+
+
+def cmd_record(args) -> int:
+    """A host's record that travels: its rows on every sheet, with proofs and the signed entries (record.py)."""
+    from agoranome_inspector import record
+
+    found = record.build(args.site, args.host)
+    text = json.dumps(found, indent=1, sort_keys=True) + "\n"
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(json.dumps({"host": found["host"], "weeks": len(found["weeks"]), "sheets": found["book"]["sheets"],
+                          "rows": sum(len(w["rows"]) for w in found["weeks"]), "out": args.out}))
+    else:
+        sys.stdout.write(text)
+    return 0 if found["weeks"] else 2
+
+
+def cmd_verify_record(args) -> int:
+    from agoranome_inspector import record
+    from agoranome_inspector.book import parse
+    from agoranome_inspector.verify import http_get, opener
+
+    raw = sys.stdin.buffer.read() if args.file in (None, "-") else Path(args.file).read_bytes()
+    found = json.loads(raw)
+    problems = record.check(found, pinned_kid=args.key)
+    if not problems and args.against:
+        problems = record.check_against(found, parse(opener(args.against, http_get)("book.jsonl").decode("utf-8")))
+    weeks = found.get("weeks") or []
+    if problems:
+        for p in problems[:20]:
+            print(f"FAIL  {p}")
+        print("NOT VERIFIED")
+        return 1
+    print(f"PASS  {found.get('host')}: {len(weeks)} week(s) of the {found.get('book', {}).get('sheets')} sheets in "
+          f"the book when it was made, {sum(len(w.get('rows') or []) for w in weeks)} row(s), each folded into "
+          f"its sheet's signed root" + (", and every entry still in the live book" if args.against else ""))
+    for w in weeks:
+        s = w.get("summary") or {}
+        print(f"INFO  {w.get('sheet')}: {s.get('rows')} row(s), {s.get('payable_as_listed')} payable as listed, "
+              f"{s.get('payable_not_as_listed')} payable not as listed")
+    print("VERIFIED")
+    return 0
+
+
+def cmd_check_delivery(args) -> int:
+    """A paid lab answer's receipt is bound to its result: recompute the SHA-256 of the result's RFC 8785 form."""
+    from agoranome_inspector.canonical import jcs, sha256_hex
+
+    raw = sys.stdin.buffer.read() if args.file in (None, "-") else Path(args.file).read_bytes()
+    body = json.loads(raw)
+    stated = ((body.get("receipt") or {}).get("delivery") or {}).get("sha256") if isinstance(body, dict) else None
+    if not stated or "result" not in body:
+        print("FAIL  the answer has no result, or its receipt names no delivery hash")
+        return 1
+    found = sha256_hex(jcs(body["result"]))
+    ok = found == str(stated).lower()
+    print(json.dumps({"ok": ok, "receipt_id": body["receipt"].get("receipt_id"), "stated": stated,
+                      "recomputed": found, "amount_atomic": body["receipt"].get("amount_atomic"),
+                      "ceiling_atomic": body["receipt"].get("ceiling_atomic")}, indent=2))
+    return 0 if ok else 1
+
+
+def cmd_pick(args) -> int:
+    from agoranome_inspector.picking import load_tables, describe
+    from agoranome_inspector.pick import rank
+
+    try:
+        tables = load_tables(args.site, pinned_kid=args.key)
+        found = rank(tables, args.job, args.budget, market=args.market, limit=args.limit)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print(json.dumps(found, indent=2) if args.json else describe(found))
+    return 0 if found["picked"] else 2
+
+
+def cmd_mcp(args) -> int:
+    from agoranome_inspector.mcp_stdio import serve
+
+    serve(args.site, pinned_kid=args.key)
+    return 0
 
 
 def cmd_keygen(args) -> int:
@@ -172,11 +259,13 @@ def cmd_run(args) -> int:
         print(f"HELD, not published: {'; '.join(reasons)}. Look at {held} and run again with --publish-anyway "
               "to publish it.", file=sys.stderr)
         return 3
-    out = publish(args.site, built, signer)
+    words = {x["resource"]: x.get("words") or [] for x in found.get("listings") or []}
+    out = publish(args.site, built, signer, words=words)
     if reasons:
         note(args.site, signer, "Published past the check before signing, by the operator's choice: "
              + "; ".join(reasons) + ".", refs={"sheet": built["id"]})
-    print(json.dumps({"summary": built["summary"], "head": out["head"]}))
+    print(json.dumps({"summary": built["summary"], "head": out["head"],
+                      "pick_rows": out["pick"]["body"]["rows"] if out.get("pick") else None}))
     return 0
 
 
@@ -185,11 +274,92 @@ def cmd_anchor_lab(args) -> int:
     from agoranome_inspector.book import Book, utc_now
     from agoranome_inspector.publish import BOOK, write_head
 
+    from agoranome_inspector import pledge
+    from agoranome_inspector.book import entries_of
+    from agoranome_inspector.publish import write_index, write_pledge
+
     raw = read_ledger(args.ledger)
-    book = Book(str(Path(args.site) / BOOK))
-    entry = book.append(_key(args), "anchor", anchor_body(args.ledger, raw, utc_now()))
-    write_head(Path(args.site), book)
-    print(json.dumps({"seq": entry["seq"], "roots": entry["body"]["roots"]}))
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    signer = _key(args)
+    read_at = utc_now()
+    entry = book.append(signer, "anchor", anchor_body(args.ledger, raw, read_at))
+    out = {"seq": entry["seq"], "roots": entry["body"]["roots"]}
+    # The pledge's figures, once the ledger publishes them, and only when they changed since the last reading.
+    body = pledge.pledge_body(args.ledger, raw, read_at)
+    if body is not None:
+        problems = pledge.check(body)
+        if problems:
+            print("the lab's pledge figures do not add up, so they are not put in the book: " + "; ".join(problems),
+                  file=sys.stderr)
+            return 3
+        last = entries_of("pledge", book.entries())
+        if not last or pledge.figures_digest(last[-1]["body"]) != pledge.figures_digest(body):
+            kept = book.append(signer, "pledge", body)
+            out["pledge"] = {"seq": kept["seq"], "months": len(body["months"]), "owed": body["totals"]["owed"],
+                             "given": body["totals"]["given"]}
+        write_pledge(site, book)
+        write_index(site, book)
+    write_head(site, book)
+    print(json.dumps(out))
+    return 0
+
+
+def cmd_reports(args) -> int:
+    """Copy buyers' reports from the lab's listing into the book (reports.py). Prints counts only."""
+    import urllib.error
+
+    from agoranome_inspector import reports
+    from agoranome_inspector.book import Book, utc_now
+    from agoranome_inspector.publish import BOOK, write_head
+
+    try:
+        raw = reports.read_reports(args.source)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print(json.dumps({"unchanged": True, "note": "the lab doesn't list buyers' reports yet"}))
+            return 0
+        raise
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    body = reports.reports_body(args.source, raw, utc_now(), entries)
+    problems = reports.check(body, entries)
+    if problems:
+        print("the lab's reports are not put in the book: " + "; ".join(problems[:5]), file=sys.stderr)
+        return 3
+    last = [e for e in entries if e.get("kind") == "reports"]
+    if not body["reports"] and body["missing"] == ((last[-1]["body"].get("missing") or []) if last else []):
+        print(json.dumps({"unchanged": True, "held": body["held"], "listed": body["listed"]}))
+        return 0
+    entry = book.append(_key(args), "reports", body)
+    write_head(site, book)
+    print(json.dumps({"seq": entry["seq"], "new": len(body["reports"]), "held": body["held"],
+                      "missing": len(body["missing"]), "refused": body["refused"]}))
+    return 0
+
+
+def cmd_shelf(args) -> int:
+    from agoranome_inspector import shelf
+    from agoranome_inspector.book import Book, entries_of
+    from agoranome_inspector.canonical import digest
+    from agoranome_inspector.publish import BOOK, write_head, write_index, write_shelves
+
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    body = shelf.shelf_body(entries)
+    last = entries_of("shelf", entries)
+    # A new entry only when a fact or a sheet behind the card changed.
+    if not last or digest({k: last[-1]["body"].get(k) for k in ("facts", "sheets")}) != \
+            digest({k: body.get(k) for k in ("facts", "sheets")}):
+        entry = book.append(_key(args), "shelf", body)
+        print(json.dumps({"seq": entry["seq"], "grades": {c["shelf"]: c["grade"] for c in body["shelves"]}}))
+    else:
+        print(json.dumps({"unchanged": True}))
+    write_shelves(site, book)
+    write_index(site, book)
+    write_head(site, book)
     return 0
 
 
@@ -207,6 +377,41 @@ def cmd_weekly_note(args) -> int:
     path = weekly_note(args.site)
     print(f"weekly note: {path}" if path else "weekly note: none this week")
     return 0
+
+
+def cmd_buyer_test(args) -> int:
+    """Agoranome's own listings read by a buying model, with the fair pick run on its jobs (buyers.py)."""
+    from agoranome_inspector import buyers
+    from agoranome_inspector.verify import http_get
+
+    try:
+        openapi = json.loads(http_get(args.openapi))
+    except Exception as e:  # noqa: BLE001 - the test is skipped; the sheets are unchanged
+        print(f"buyer test: the lab's listings were not read ({type(e).__name__}), so none this week")
+        return 0
+    base = args.openapi.rsplit("/openapi.json", 1)[0]
+    try:
+        path = buyers.buyer_test(args.site, openapi, base=base)
+    except ValueError as e:
+        print(f"buyer test: {e}")
+        return 2
+    if path is None:
+        print("buyer test: none this week")
+        return 0
+    print(f"buyer test: {path} " + json.dumps(json.loads(path.read_text())["counts"], sort_keys=True))
+    return 0
+
+
+def cmd_verdict_study(args) -> int:
+    from agoranome_inspector import buyers
+
+    found = buyers.verdict_study(rotations=args.rotations)
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out).write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
+    print(json.dumps({"counts": found["counts"], "fisher_one_sided_p": found["fisher_one_sided_p"],
+                      "out": args.out}, sort_keys=True))
+    answered = sum(c["answered"] for c in found["counts"].values())
+    return 0 if answered else 2
 
 
 def cmd_doctor(args) -> int:
@@ -264,6 +469,7 @@ def parser() -> argparse.ArgumentParser:
     v.add_argument("--key", help="the first signing key's kid, as published elsewhere")
     v.add_argument("--since", help="an entry you kept earlier, as SEQ:HASH, that must still be in the book")
     v.add_argument("--recheck", type=int, default=0, help="ask N rows' endpoints again, unpaid")
+    v.add_argument("--chain", metavar="RPC", help="a Base RPC URL: check the pledge's transfers on the chain")
     v.add_argument("--json", action="store_true")
     v.set_defaults(func=cmd_verify)
 
@@ -277,6 +483,37 @@ def parser() -> argparse.ArgumentParser:
     vr.add_argument("site")
     vr.add_argument("proof", help="the proof's URL or a file")
     vr.set_defaults(func=cmd_verify_receipt)
+
+    rc = sub.add_parser("record", help="a seller's record that travels: its rows on every sheet, with proofs")
+    rc.add_argument("site")
+    rc.add_argument("host")
+    rc.add_argument("--out", help="write it here (default: standard output)")
+    rc.set_defaults(func=cmd_record)
+
+    vrc = sub.add_parser("verify-record", help="check a record from the record alone, with the pinned first key")
+    vrc.add_argument("file", nargs="?", help="the record (default: standard input)")
+    vrc.add_argument("--key", help="the book's first key id, as published")
+    vrc.add_argument("--against", help="also check each entry still stands in this site's live book")
+    vrc.set_defaults(func=cmd_verify_record)
+
+    cd = sub.add_parser("check-delivery", help="check a paid lab answer's receipt names the hash of its result")
+    cd.add_argument("file", nargs="?", help="the answer's JSON (default: standard input)")
+    cd.set_defaults(func=cmd_check_delivery)
+
+    pk = sub.add_parser("pick", help="the fair pick: endpoints for a job, ranked by the published rule pick-1")
+    pk.add_argument("site", help="the published site (URL or directory)")
+    pk.add_argument("job", help="what the endpoint should do, in words")
+    pk.add_argument("--budget", help="the most to pay for one request, in US dollars")
+    pk.add_argument("--market", choices=["x402", "mpp"], help="one market only")
+    pk.add_argument("--limit", type=int, default=10)
+    pk.add_argument("--key", help="the kid the book's first key must have")
+    pk.add_argument("--json", action="store_true")
+    pk.set_defaults(func=cmd_pick)
+
+    mc = sub.add_parser("mcp", help="serve the fair pick and the sheet's rows as MCP tools on stdin and stdout")
+    mc.add_argument("site", nargs="?", default=DEFAULT_SITE, help="the published site (URL or directory)")
+    mc.add_argument("--key", help="the kid the book's first key must have")
+    mc.set_defaults(func=cmd_mcp)
 
     k = sub.add_parser("keygen", help="a new Ed25519 signing key")
     k.add_argument("--out", required=True)
@@ -319,11 +556,22 @@ def parser() -> argparse.ArgumentParser:
     measuring(r)
     r.set_defaults(func=cmd_run)
 
-    a = sub.add_parser("anchor-lab", help="copy the lab's monthly receipt roots into the book")
+    a = sub.add_parser("anchor-lab", help="copy the lab's monthly receipt roots and pledge figures into the book")
     a.add_argument("site")
     a.add_argument("--ledger", default="https://api.agoranome.com/impact/ledger")
     a.add_argument("--key-file")
     a.set_defaults(func=cmd_anchor_lab)
+
+    rp = sub.add_parser("reports", help="copy buyers' reports, each tied to a payment on Base, into the book")
+    rp.add_argument("site")
+    rp.add_argument("--source", default="https://api.agoranome.com/reports.json")
+    rp.add_argument("--key-file")
+    rp.set_defaults(func=cmd_reports)
+
+    sh = sub.add_parser("shelf", help="grade the shelves machines shop from, by the rule shelf-1")
+    sh.add_argument("site")
+    sh.add_argument("--key-file")
+    sh.set_defaults(func=cmd_shelf)
 
     n = sub.add_parser("note", help="a note in the book")
     n.add_argument("site")
@@ -334,6 +582,18 @@ def parser() -> argparse.ArgumentParser:
     wn = sub.add_parser("weekly-note", help="a model's short note on the newest sheets, numbers checked (notes/)")
     wn.add_argument("site")
     wn.set_defaults(func=cmd_weekly_note)
+
+    bt = sub.add_parser("buyer-test", help="a model reads Agoranome's own listings as a buyer; the fair pick runs "
+                                           "on its jobs (buyer-test/)")
+    bt.add_argument("site")
+    bt.add_argument("--openapi", default="https://api.agoranome.com/openapi.json",
+                    help="the lab's /openapi.json (only api.agoranome.com is read)")
+    bt.set_defaults(func=cmd_buyer_test)
+
+    vs = sub.add_parser("verdict-study", help="once: does a shown verdict move a buying model? (offers we wrote)")
+    vs.add_argument("--out", required=True)
+    vs.add_argument("--rotations", type=int, default=3, choices=range(1, 4))
+    vs.set_defaults(func=cmd_verdict_study)
 
     d = sub.add_parser("doctor", help="open an issue on a held or failed weekly run, with a model's reading")
     d.add_argument("--log", help="the run's log")

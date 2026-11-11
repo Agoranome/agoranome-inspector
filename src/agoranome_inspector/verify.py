@@ -46,7 +46,7 @@ from agoranome_inspector.merkle import merkle_proof, verify_proof
 from agoranome_inspector.rules import RULES
 
 MAX_BYTES = 256 * 1024 * 1024
-SAFE_PATH = re.compile(r"^(sheets|changes|links)/[A-Za-z0-9._-]+\.(json|csv)$")
+SAFE_PATH = re.compile(r"^(sheets|changes|links|picks)/[A-Za-z0-9._-]+\.(json|csv)$")
 
 
 def http_get(url: str, timeout: float = 60.0) -> bytes:
@@ -235,6 +235,97 @@ def check_links(read: Callable[[str], bytes], entries: List[Dict[str, Any]], ent
                else "the links do not match the sheets")
 
 
+def check_pick(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+               report: Report) -> None:
+    """A pick table is recomputed from the sheet it names, all but the words, which are checked for form."""
+    from agoranome_inspector import pick as pick_lib
+
+    body = entry["body"]
+    label = f"pick {body.get('file')}"
+    ref = body.get("sheet") or {}
+    sheet_entry = next((e for e in entries if e["seq"] == ref.get("seq")), None)
+    if sheet_entry is None or sheet_entry["kind"] != "sheet" or sheet_entry["body"].get("id") != ref.get("id") \
+            or sheet_entry["seq"] > entry["seq"]:
+        report.add(label, False, f"names sheet {ref.get('id')} at entry {ref.get('seq')}, which the book lacks")
+        return
+    sheet = _load_sheet(read, sheet_entry, Report())
+    if sheet is None:
+        report.add(label, False, f"its sheet {ref.get('id')} could not be read or does not match the book")
+        return
+    try:
+        data = read(_safe(body["file"]))
+    except Exception as e:
+        report.add(label, False, f"could not read {body.get('file')} ({type(e).__name__})")
+        return
+    if sha256_hex(data) != body.get("sha256"):
+        report.add(label, False, f"sha256 {sha256_hex(data)}, book says {body.get('sha256')}")
+        return
+    found = json.loads(data)
+    problems = pick_lib.check_table(found, sheet)
+    if not problems and (len(found["rows"]) != body.get("rows") or found["left_out"] != body.get("left_out")
+                         or found["market"] != body.get("market") or data != canonical(found) + b"\n"):
+        problems = ["the book's counts do not match the pick table"]
+    report.add(label, not problems,
+               f"rule {found.get('rule')}: {len(found['rows']):,} rows in the running, recomputed from "
+               f"{ref.get('id')}" if not problems else "; ".join(problems))
+
+
+def check_pledge(entry: Dict[str, Any], report: Report, chain_rpc: Optional[str] = None,
+                 post: Optional[Callable[[str, bytes], bytes]] = None) -> None:
+    """The pledge's arithmetic in one entry, and with an RPC its transfers on the chain (pledge.py)."""
+    from agoranome_inspector import pledge as pledge_lib
+
+    body = entry["body"]
+    label = f"pledge {entry['seq']}"
+    problems = pledge_lib.check(body)
+    if chain_rpc and not problems:
+        problems = pledge_lib.check_transfers(body, chain_rpc, post or pledge_lib.http_post)
+    t = body.get("totals") or {}
+    transfers = sum(len(m.get("transfers") or []) for m in body.get("months") or [])
+    report.add(label, not problems,
+               f"{len(body.get('months') or [])} month(s): {pledge_lib.usd(t.get('owed', 0))} owed at "
+               f"{int(body.get('pledge_bps', 0)) / 100:g}%, {pledge_lib.usd(t.get('given', 0))} given in {transfers} "
+               f"transfer(s){', checked on the chain' if chain_rpc else ''}" if not problems else "; ".join(problems))
+
+
+def check_reports(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+                  report: Report, chain_rpc: Optional[str] = None,
+                  post: Optional[Callable[[str, bytes], bytes]] = None) -> None:
+    """Buyers' reports in one entry: their formats, against the pick table of the sheet each names, and with an
+    RPC their payments on the chain (reports.py)."""
+    from agoranome_inspector import pledge as pledge_lib
+    from agoranome_inspector import reports as reports_lib
+
+    body = entry["body"]
+    label = f"reports {entry['seq']}"
+    problems = reports_lib.check(body, [e for e in entries if e["seq"] < entry["seq"]])
+    tables: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    def table_for(sheet_id: str) -> Optional[Dict[str, Any]]:
+        if sheet_id not in tables:
+            pick = next((e for e in entries if e["kind"] == "pick" and e["seq"] < entry["seq"]
+                         and (e["body"].get("sheet") or {}).get("id") == sheet_id), None)
+            tables[sheet_id] = None
+            if pick is not None:
+                try:
+                    data = read(_safe(pick["body"]["file"]))
+                    if sha256_hex(data) == pick["body"].get("sha256"):
+                        tables[sheet_id] = json.loads(data)
+                except Exception:
+                    pass
+        return tables[sheet_id]
+    if not problems:
+        problems = reports_lib.check_rows(body, table_for)
+    if chain_rpc and not problems:
+        problems = reports_lib.check_transfers(body, chain_rpc, post or pledge_lib.http_post)
+    n = len(body.get("reports") or [])
+    report.add(label, not problems,
+               f"{n} new report(s), {body.get('held')} held, {len(body.get('missing') or [])} no longer listed by "
+               f"the lab; each against its sheet's pick table{', and its payment on the chain' if chain_rpc else ''}"
+               if not problems else "; ".join(problems[:5]) + (f" (and {len(problems) - 5} more)"
+                                                                if len(problems) > 5 else ""))
+
+
 def recheck(sheet: Dict[str, Any], n: int, ask: Callable[[Dict[str, Any]], Dict[str, Any]],
             rng: Optional[random.Random] = None) -> Dict[str, Any]:
     rng = rng or random.Random()
@@ -253,6 +344,7 @@ def recheck(sheet: Dict[str, Any], n: int, ask: Callable[[Dict[str, Any]], Dict[
 
 def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[str] = None,
            since: Optional[Dict[str, Any]] = None, every: bool = False, recheck_n: int = 0,
+           chain_rpc: Optional[str] = None, post: Optional[Callable[[str, bytes], bytes]] = None,
            get: Callable[[str], bytes] = http_get,
            ask: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None) -> Report:
     report = Report()
@@ -280,10 +372,32 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
     link_entries = entries_of("links", entries)
     for entry in (link_entries if every else link_entries[-1:]):
         check_links(read, entries, entry, report)
+    picks = entries_of("pick", entries)
+    if not every:
+        newest_pick: Dict[str, Dict[str, Any]] = {}
+        for e in picks:
+            newest_pick[e["body"].get("market")] = e
+        picks = sorted(newest_pick.values(), key=lambda e: e["seq"])
+    for entry in picks:
+        check_pick(read, entries, entry, report)
     anchors = entries_of("anchor", entries)
     if anchors:
         months = {m["period"] for a in anchors for m in a["body"].get("roots") or []}
         report.add("anchors", True, f"{len(anchors)} reading(s) of the lab's receipt roots, {len(months)} month(s)")
+    pledges = entries_of("pledge", entries)
+    for entry in (pledges if every else pledges[-1:]):
+        check_pledge(entry, report, chain_rpc, post)
+    reported = entries_of("reports", entries)
+    for entry in (reported if every else reported[-1:]):
+        check_reports(read, entries, entry, report, chain_rpc, post)
+    shelves = entries_of("shelf", entries)
+    for entry in (shelves if every else shelves[-1:]):
+        from agoranome_inspector import shelf as shelf_lib
+
+        problems = shelf_lib.check(entry["body"], entries)
+        report.add(f"shelf {entry['seq']}", not problems,
+                   ", ".join(f"{c['name']} {c['grade']}" for c in entry["body"].get("shelves") or [])
+                   + f" (rule {entry['body'].get('rule')}, recomputed)" if not problems else "; ".join(problems))
     if recheck_n and sheet is not None and report.ok:
         if ask is None:
             from agoranome_inspector import mpp

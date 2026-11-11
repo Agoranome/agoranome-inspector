@@ -26,7 +26,7 @@ The first entry is a `key` entry that names the signing key and is signed by it.
 by the key in force, hands over to a new key. Nothing is ever edited or removed: a correction is a new entry.
 Anyone who keeps an entry's seq and hash can later check that the book still holds it (see verify.py).
 
-Kinds written by this package: key, sheet, changes, anchor, note. A verifier ignores kinds it does not know,
+Kinds written by this package: key, sheet, changes, links, anchor, pledge, shelf, note. A verifier ignores kinds it does not know,
 beyond checking their chain and signature.
 """
 
@@ -39,7 +39,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from agoranome_inspector.canonical import ZERO_HASH, canonical, digest
 from agoranome_inspector.keys import Signer, verify_signature
 
-KINDS = ("key", "sheet", "changes", "links", "anchor", "note")
+KINDS = ("key", "sheet", "changes", "links", "pick", "anchor", "pledge", "shelf", "reports", "note")
 
 
 def utc_now() -> str:

@@ -6,8 +6,9 @@ name: Weekly sheet
 # Actions tab. It does nothing until the INSPECTOR_SIGNING_KEY secret is set (see scripts/weekly.sh).
 #
 # Models come only after that, and only with the ANTHROPIC_API_KEY secret: a short note on the week written from
-# the signed counts (notes/, outside the book), or, when the run is held or fails, an issue with a model's reading
-# of the log. Both are under the month's cap in src/agoranome_inspector/models.py, and neither can stop or change
+# the signed counts (notes/, outside the book), a buyer test of Agoranome's own listings with the fair pick run on
+# its jobs (buyer-test/, outside the book), or, when the run is held or fails, an issue with a model's reading
+# of the log. All are under the month's cap in src/agoranome_inspector/models.py, and none can stop or change
 # a sheet: the measuring step never sees the model key.
 on:
   schedule:
@@ -69,6 +70,19 @@ jobs:
           git add notes
           if ! git diff --cached --quiet; then
             git commit -q -m "Weekly note $(date -u +%Y-%m-%d)"
+            git push origin gh-pages
+          fi
+      - name: Buyer test of Agoranome's own listings (a model, after publishing)
+        if: success() && env.HAS_MODEL_KEY == 'true' && hashFiles('site/book.jsonl') != ''
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          agoranome-inspector buyer-test site
+          cd site
+          git add buyer-test
+          if ! git diff --cached --quiet; then
+            git commit -q -m "Buyer test $(date -u +%Y-%m-%d)"
             git push origin gh-pages
           fi
       - name: Run doctor (an issue on a held or failed run)

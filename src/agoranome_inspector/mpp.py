@@ -42,6 +42,7 @@ from agoranome_inspector import networks
 from agoranome_inspector.canonical import digest, sha256_hex
 from agoranome_inspector.fetch import FetchError, SafeFetcher
 from agoranome_inspector.merkle import leaf_hash
+from agoranome_inspector.pick import mpp_words
 from agoranome_inspector.rule_mpp import METHOD, RULE, answer, judge
 
 CATALOG_URL = "https://mpp.dev/api/services"
@@ -411,6 +412,7 @@ def listings(catalog: Dict[str, Any]) -> Dict[str, Any]:
                 "host": (urlsplit(url).hostname or "").lower(),
                 "service": token(service.get("id")), "category": kind,
                 "listed": [listed], "payers_30d": 0, "calls_30d": 0,
+                "words": mpp_words(service, endpoint, url),      # for the fair pick (pick.py)
             })
     return {"services": len(services), "listings": [out[k] for k in sorted(out)], "skipped": skipped}
 

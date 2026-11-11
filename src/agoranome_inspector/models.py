@@ -14,8 +14,8 @@
 
 """Model calls, under a hard monthly cap.
 
-Where models are used (the weekly note, the run doctor, the monthly red-team of this code) and what they may
-not do:
+Where models are used (the weekly note, the run doctor, the monthly red-team of this code, the weekly buyer test
+of Agoranome's own listings and the one-off verdict study) and what they may not do:
 
   - No model decides a verdict, sits in the publishing path, or reads sellers' words. The sheet, its change log
     and the book are built, signed, verified and pushed before any model is asked, and a model's text is never

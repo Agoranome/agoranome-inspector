@@ -1,0 +1,73 @@
+name: Verdict study
+
+# Once, started by hand from the Actions tab: does a verdict shown beside an offer move a buying model away from
+# an offer that asks more than it lists? The offers are ones Agoranome wrote (hosts under .example); the model
+# only picks one offer per trial, and the counts and the test are written by code (src/agoranome_inspector/
+# buyers.py). Every call is under the month's cap (src/agoranome_inspector/models.py). The result goes to
+# studies/ on the published site when there is one, and is kept as the run's artifact either way. It does
+# nothing until the ANTHROPIC_API_KEY secret is set.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: model-spend
+      cancel-in-progress: false
+    env:
+      HAS_MODEL_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+      INSPECTOR_SPEND_LEDGER: spend/spend.jsonl
+      INSPECTOR_MODEL: ${{ vars.INSPECTOR_MODEL }}
+    steps:
+      - if: env.HAS_MODEL_KEY != 'true'
+        run: echo "::notice::ANTHROPIC_API_KEY is not set, so nothing was asked."
+      - uses: actions/checkout@v4
+        if: env.HAS_MODEL_KEY == 'true'
+      - uses: actions/setup-python@v5
+        if: env.HAS_MODEL_KEY == 'true'
+        with:
+          python-version: "3.12"
+      - if: env.HAS_MODEL_KEY == 'true'
+        run: pip install ".[models]"
+      - name: Read the model spend ledger
+        if: env.HAS_MODEL_KEY == 'true'
+        run: bash scripts/spend.sh pull
+      - name: Run the study
+        id: study
+        if: env.HAS_MODEL_KEY == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          out="$RUNNER_TEMP/verdict-influence-$(date -u +%Y-%m-%d).json"
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+          agoranome-inspector verdict-study --out "$out"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.study.outcome == 'success'
+        with:
+          name: verdict-study
+          path: ${{ steps.study.outputs.out }}
+      - name: Publish it beside the sheets
+        if: steps.study.outcome == 'success'
+        run: |
+          if ! git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            echo "::notice::No published site yet; the study is kept as this run's artifact."
+            exit 0
+          fi
+          git config user.name "agoranome-inspector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --depth=1 origin "+refs/heads/gh-pages:refs/remotes/origin/gh-pages"
+          git worktree add -B gh-pages site origin/gh-pages
+          mkdir -p site/studies
+          cp "${{ steps.study.outputs.out }}" site/studies/
+          cd site
+          git add studies
+          git commit -q -m "Verdict study $(date -u +%Y-%m-%d)"
+          git push origin gh-pages
+      - name: Save the model spend ledger
+        if: always() && env.HAS_MODEL_KEY == 'true'
+        run: bash scripts/spend.sh push

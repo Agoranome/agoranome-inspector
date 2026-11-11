@@ -150,6 +150,79 @@ processor's or a facilitator's) and links nobody; it is listed with its host cou
 one market is listed with its rows in each. Every link carries its evidence. A link is a fact beside the rows,
 never a verdict: no row's verdict changes because of it. The verifier rebuilds the file from the sheets.
 
+## The fair pick
+
+For a job in plain words and the most a buyer will pay for one request, the endpoints that fit, in an order no
+seller can pay for. The rule is `pick-1` (`src/agoranome_inspector/pick.py`):
+
+1. **In the running:** the row gave an offer an agent can pay on the newest sheet of its market, with a price per
+   request in US dollars (USDC on a main network for x402; for MPP a charge in USDC, pathUSD, USDT0, OUSD or by
+   card in dollars), at or under the budget, and its words match the job at least half as well as the best match.
+2. **Honest on price first:** those that asked what they list, then those not judged (the price depends on the
+   request, or two asks differed), then those that asked more than they list or named another pay-to.
+3. **Signs of delivery next.** Under `pick-1` the only sign is a Fair Offer block, the seller's published promise
+   to settle only on delivery. Buyers' reports tied to a payment, and repeat buyers read from the chain, will come
+   under a later rule, never by changing this one.
+4. **Then the lower price**, then the better match, then the address, so every tie breaks the same way.
+
+The match is Okapi BM25 (k1 1.2, b 0.75) over each listing's words: its description, name, tags and address,
+lower case, stop words dropped, a light suffix rule, each word counted at most 3 times and at most 64 distinct
+words kept. Stuffing a description with a word buys little: it only has to clear half the best match, and the
+order inside the running is honesty, delivery and price. The words are published sorted, so a seller's sentences
+are never republished and no instruction written in a listing reaches a buying agent through the pick.
+
+With each sheet, the weekly run writes `picks/<id>.json`, one row for each listing in the running with the fields
+the order uses and its words, and a `pick` entry in the book with its hash. The verifier recomputes every field
+but the words from the sheet, and checks the words' form. Anyone gets the same order:
+
+```bash
+agoranome-inspector pick https://agoranome.github.io/agoranome-inspector/ "weather forecast for a city" --budget 0.01
+agoranome-inspector mcp      # the same as two MCP tools on stdio: fair_pick and seller_row
+```
+
+`seller_row` answers one endpoint's row on the newest sheet with its Merkle proof against the signed root. Both
+tools are free and read-only. For an MCP client:
+
+```json
+{"mcpServers": {"agoranome-inspector": {"command": "agoranome-inspector", "args": ["mcp"]}}}
+```
+
+## The shelf report card
+
+The sheets grade sellers. The shelf card grades the shelves buying agents shop from: Coinbase's x402 Bazaar, the
+same index as AWS Bedrock AgentCore's agents reach it, the MPP catalog and Skyfire's directory. By the rule
+`shelf-1`, each shelf answers five questions:
+
+| Question | How it is answered |
+| --- | --- |
+| Open: can anyone read the whole shelf, without an account? | From the shelf's own documents |
+| Rank: is the rule that orders a search published, with nothing a seller can pay for? | From its documents |
+| Matches: do the listings match what the sellers ask when asked? | Measured: the share of payable offers judged on price that asked no more than listed (and, on x402, to the listed pay-to), from the newest sheet; yes at 95%, partly at 80% |
+| Delivery: does the shelf show whether a seller delivers? | From its documents |
+| Dispute: can a buyer dispute a charge through the shelf? | From its documents |
+
+Yes is 2 points, partly 1, no or unknown 0; A at 8 of 10, B at 6, C at 4, D below. Each fact carries its source and
+the day it was read, and is a plain statement of what was read. A shelf that finds a fact wrong can point to its
+documents: the correction is a new entry and the card is graded again. `agoranome-inspector shelf <site>` adds an
+entry only when a fact or a sheet behind the card changed, and the verifier recomputes the card from the entry and
+the sheets the book holds. The card is `shelves.json` on the site.
+
+## The 15% pledge
+
+Agoranome pledges 15% of what it earns to a public cause, paid once a month from its own receiving address to the
+cause's public address in USDC on Base. The lab's ledger (`/impact/ledger`) states each month's settled revenue,
+the part that owes the pledge, what is owed and the transfers made. Each weekly run, `anchor-lab` copies the
+figures into the book as a `pledge` entry, with a hash of the page as read, whenever they changed. Three checks:
+
+1. owed = ceil(counted x 1500 / 10000) for each month, the lab's own rule;
+2. given = the sum of the month's verified transfers, and a month is `kept` exactly when given >= owed;
+3. with `verify --chain <Base RPC URL>`, each transfer's transaction holds a USDC Transfer to the cause's address
+   of at least its stated amount.
+
+Figures that fail the first two checks are refused, not signed. The figures are the lab's: the inspector checks
+their arithmetic and the transfers, and `verify-receipt` checks any receipt against its month's root. Until a cause
+is named, what is owed is kept and shown as outstanding. The figures are `pledge.json` on the site.
+
 ## The open book
 
 A JSON Lines file, `book.jsonl`, one entry a line, that only grows:
@@ -165,9 +238,12 @@ A JSON Lines file, `book.jsonl`, one entry a line, that only grows:
 - Entry 0 is a `key` entry naming the signing key, signed by it. A later `key` entry, signed by the key in
   force, hands over to a new key. A key's `kid` is its RFC 7638 thumbprint.
 - Kinds: `key`; `sheet` (the file, its SHA-256, the Merkle root of its rows, the count and the summary); `changes`;
-  `links` (the operator links, from the newest sheet of each market);
-  `anchor` (the lab's monthly receipt roots as read on a day); `note` (a correction, a dispute and its answer, a
-  change of method). Nothing is edited or removed. A correction is a new entry.
+  `links` (the operator links, from the newest sheet of each market); `pick` (a sheet's pick table, its hash and
+  counts);
+  `anchor` (the lab's monthly receipt roots as read on a day); `pledge` (the 15% pledge's figures as the lab's
+  ledger states them); `shelf` (the shelf report card, its facts and the sheets it was measured from); `reports`
+  (buyers' reports copied from the lab, each tied to a payment on Base); `note` (a
+  correction, a dispute and its answer, a change of method). Nothing is edited or removed. A correction is a new entry.
 
 The Merkle tree is the lab's pledge ledger construction, so one verifier proves a sheet row and a lab receipt:
 
@@ -181,10 +257,51 @@ leaves sorted; an odd node is promoted unchanged
 book. From then on a receipt's proof from the lab must fold into the root the book kept:
 `agoranome-inspector verify-receipt <site> <proof URL or file>`.
 
+## Receipts bound to what was delivered
+
+Every paid answer from the lab carries a signed receipt naming the SHA-256 of the RFC 8785 (JCS) form of the result
+it came with (`receipt.delivery.sha256`), and the lab's ledger keeps that hash beside the receipt (its proof page
+shows it). A buyer can show what it was sold, and anyone can recompute the hash:
+`agoranome-inspector check-delivery answer.json`. On a row set paid with x402's `upto` scheme the receipt also names
+the ceiling the buyer signed for (`ceiling_atomic`) beside what was charged for the rows delivered (`amount_atomic`).
+
+## Buyers' reports
+
+A buyer that paid an x402 seller can say what it got: delivered, not delivered, a wrong result, charged more than
+quoted, or too slow. The lab takes the report (`POST https://api.agoranome.com/reports`) only from the wallet that
+paid: the report names the payment's transaction on Base, which must move USDC from the signing wallet to an address
+the seller's row on this inspector's newest sheet asks payment to, and the wallet signs the report (EIP-191). One
+report per payment, never edited, and no free text: only the outcome.
+
+Each weekly run, `agoranome-inspector reports <site>` copies every report the lab's listing shows that the book
+doesn't hold yet into a `reports` entry, with a hash of the page as read. A report the book holds that the lab no
+longer lists is named in the next entry's `missing`, so none can be quietly removed. `verify` checks each report
+against the pick table of the sheet it names, and with `--chain RPC` reads its payment again on Base. Reports are
+signs, not verdicts: no rule counts them yet, and pick-1 doesn't.
+
+## The record that travels
+
+A seller's history on the sheets, in one file it can carry anywhere: to a marketplace listing, a buyer, or a grant
+reviewer. `agoranome-inspector record <site> <host> --out record.json` gathers, from every sheet in the book, the
+host's rows with their Merkle proofs and the signed book entries they fold into (the sheets' and the key entries').
+Nothing else is needed to check it:
+
+```
+agoranome-inspector verify-record record.json --key <first key's kid>
+agoranome-inspector verify-record record.json --key <kid> --against https://agoranome.github.io/agoranome-inspector/
+```
+
+The first recomputes each entry's hash, checks its Ed25519 signature by the key in force at its place in the book,
+and folds each row into its sheet's signed root, so a row can't be added, changed, or dropped from a week the
+record shows. The second also checks that each entry still stands at its place in the live book. What a record
+can't show is a week it leaves out: it says how many sheets the book held when it was made (`book.sheets`), so a
+reader can ask for the rest. Rows are what the sheet says, verdicts by the published rules; no grade is added and
+nobody can pay to change one.
+
 ## The published site
 
 Plain files that any static host can serve: `book.jsonl`, `head.json`, `sheets/<id>.json`, `sheets/<id>.csv`,
-`changes/<id>.json`, `links/<id>.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
+`changes/<id>.json`, `links/<id>.json`, `picks/<id>.json`, `shelves.json`, `pledge.json` and `index.html`. A sheet's id names its market and day (`x402-2026-11-16`). Each change log
 compares a sheet with the sheet just before it in the same market, and the verifier checks that it does. With no
 `--id`, `verify` checks the newest sheet of each market.
 
@@ -194,7 +311,10 @@ compares a sheet with the sheet just before it in the same market, and the verif
 agoranome-inspector keygen --out inspector-key.pem        # keep it secret; publish the kid it prints
 export INSPECTOR_SIGNING_KEY="$(cat inspector-key.pem)"   # or pass --key-file
 agoranome-inspector run site/ --private private/          # read the index, ask, judge, publish
-agoranome-inspector anchor-lab site/                      # optional: join the lab's receipt roots
+agoranome-inspector shelf site/                           # grade the shelves from the newest sheets
+agoranome-inspector anchor-lab site/                      # the lab's receipt roots and the pledge's figures
+agoranome-inspector reports site/                         # buyers' reports, each tied to a payment on Base
+agoranome-inspector check-delivery answer.json            # a paid lab answer's receipt names its result's hash
 ```
 
 `run` is polite by default: one request at a time to any host, half a second between a host's listings, at most
@@ -238,8 +358,8 @@ turn it on again in the Actions tab.
 
 ### Model uses, capped at $20 a month
 
-With the secret `ANTHROPIC_API_KEY` set, three jobs use a model (`claude-opus-5-5` unless the repository variable
-`INSPECTOR_MODEL` names another), each only after a sheet is published and never in its way:
+With the secret `ANTHROPIC_API_KEY` set, five jobs use a model (`claude-opus-5-5` unless the repository variable
+`INSPECTOR_MODEL` names another), each after the sheets are published or apart from them, never in their way:
 
 - **The weekly note.** After the weekly run has published, a model writes a short note on the week from the counts
   in the signed book (no row, host, address or seller's text is shown to it). Code checks that every number in the
@@ -248,6 +368,20 @@ With the secret `ANTHROPIC_API_KEY` set, three jobs use a model (`claude-opus-5-
 - **The run doctor.** When the weekly run is held by the check before signing or fails, the job opens an issue with
   the held reasons and the end of the log, and a model's reading of them. Without a model the issue carries the
   facts alone.
+- **The buyer test** (weekly, after the note). A model reads Agoranome's own paid listings as a buying agent would:
+  only the lab's own words, from `https://api.agoranome.com/openapi.json` (the command refuses any other host), each
+  beside what the newest sheet measured for it. For each it gives the job a buyer would type to find it, what it
+  expects to get, whether the listing as written fits what was measured, and a truthful rewrite of at most 300
+  characters. Code then runs the fair pick for that job (no model), to see whether a buyer who asks for it finds
+  the listing, and again with the rewrite's words; and drops any rewrite with a number not in the listing or the
+  measurements, a claim of standing, or words aimed at agents. It is written to `buyer-test/<sheet id>.json`,
+  outside the book. The rewrites are drafts for the lab's operator; nothing applies them.
+- **The verdict study** (once, by hand: `.github/workflows/verdict-study.yml`). Does a verdict shown beside an offer
+  move a buying model? Ten jobs, each with three offers Agoranome wrote on hosts under `.example`; in each set the
+  offer that lists the lowest price asked more than it lists. Each set is shown in three orders, with and without
+  the inspector's verdict beside every offer, and the model picks one. Code counts the picks and runs Fisher's
+  exact test; the result goes to `studies/verdict-influence-<day>.json` on the site and the run's artifact. Sixty
+  short calls, well under a dollar at the listed prices.
 - **The monthly red-team** (`.github/workflows/red-team.yml`, on the 2nd). A model reads this repository's code
   for ways a seller, a network or a mistake could make a sheet wrong or the run unsafe. The findings are sealed
   (AES-256-GCM, key derived from the signing key) before they go into a public issue, so an unfixed weakness is
@@ -263,8 +397,7 @@ call, and a call that would take the month past $20 is not made; after the call,
 the cost of the usage returned. The ledger is `spend.jsonl` on the branch `model-spend`, append-only, and the jobs
 that use it run one at a time. With no ledger, or a damaged one, no call is made. `agoranome-inspector spend
 --ledger spend.jsonl` shows the month's spend. As a second guard, set a $20 monthly spend limit on the API key's
-workspace in the Claude Console. Two more model uses (a buyer-model test and a one-off verdict-influence run) come
-with the fair pick in phase 2.
+workspace in the Claude Console.
 
 ## Where the code came from
 
