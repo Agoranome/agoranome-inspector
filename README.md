@@ -210,9 +210,11 @@ runs the inspector into it, verifies the whole site with the one command, and on
 
 It needs, once, in the repository's settings:
 
-1. **Secrets and variables, Actions, secret `INSPECTOR_SIGNING_KEY`**: the PEM text of the book's signing key, made
-   with `agoranome-inspector keygen --out inspector-key.pem`. Keep the file somewhere safe and offline. Until the
-   secret is set, the workflow measures and publishes nothing.
+1. **Secrets and variables, Actions, secret `INSPECTOR_SIGNING_KEY`**: the whole PEM file of the book's signing key,
+   made with `agoranome-inspector keygen --out inspector-key.pem`, from its `-----BEGIN PRIVATE KEY-----` line to
+   its `-----END PRIVATE KEY-----` line (on a Mac, `pbcopy < inspector-key.pem` copies it). Not the kid: that is
+   public. Keep the file somewhere safe and offline. Until the secret is set, the workflow measures and publishes
+   nothing.
 2. **Secrets and variables, Actions, variable `INSPECTOR_FIRST_KID`** (optional): the kid `keygen` printed. The run
    then refuses to publish a book whose first key is any other.
 3. **Pages**: source "Deploy from a branch", branch `gh-pages`, folder `/ (root)`. The branch exists after the first

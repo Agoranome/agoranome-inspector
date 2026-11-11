@@ -14,12 +14,14 @@
 
 """The book's signing key: Ed25519, named by its RFC 7638 JWK thumbprint.
 
-The private key is read from a PEM file or from the INSPECTOR_SIGNING_KEY environment variable (PEM text, or
-the 32-byte seed in base64url). It is never written into the book or the published files.
+The private key is read from a PEM file or from the INSPECTOR_SIGNING_KEY environment variable (the PEM text that
+`keygen` wrote). It is never written into the book or the published files. A bare 32-byte value is refused: a kid
+or a public key is one too, and a key made from either would be a key anyone can rebuild.
 """
 
 import hashlib
 import os
+import re
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -30,6 +32,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 from agoranome_inspector.canonical import b64url, b64url_decode, canonical
 
 ENV_KEY = "INSPECTOR_SIGNING_KEY"
+PEM_BLOCK = re.compile(r"-----BEGIN PRIVATE KEY-----.+?-----END PRIVATE KEY-----", re.S)
+NOT_PEM = ("the signing key is not a PEM private key: give the whole file keygen wrote, from its "
+           "-----BEGIN PRIVATE KEY----- line to its -----END PRIVATE KEY----- line")
 
 
 def thumbprint(jwk: Dict[str, str]) -> str:
@@ -67,16 +72,16 @@ class Signer:
 
     @classmethod
     def from_text(cls, text: str) -> "Signer":
-        text = text.strip()
-        if text.startswith("-----BEGIN"):
-            key = serialization.load_pem_private_key(text.encode(), password=None)
-            if not isinstance(key, Ed25519PrivateKey):
-                raise ValueError("the PEM key is not an Ed25519 key")
-            return cls(key)
-        seed = b64url_decode(text)
-        if len(seed) != 32:
-            raise ValueError("a base64url Ed25519 seed must be 32 bytes")
-        return cls(Ed25519PrivateKey.from_private_bytes(seed))
+        block = PEM_BLOCK.search(text.replace("\r", ""))     # stray quotes or spaces around a pasted file are fine
+        if not block:
+            raise ValueError(NOT_PEM)
+        try:
+            key = serialization.load_pem_private_key(block.group(0).encode(), password=None)
+        except ValueError:
+            raise ValueError(NOT_PEM + " (the lines between them are damaged)") from None
+        if not isinstance(key, Ed25519PrivateKey):
+            raise ValueError("the PEM key is not an Ed25519 key")
+        return cls(key)
 
     @classmethod
     def load(cls, path: Optional[str] = None) -> "Signer":
