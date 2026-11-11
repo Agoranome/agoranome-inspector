@@ -241,7 +241,8 @@ A JSON Lines file, `book.jsonl`, one entry a line, that only grows:
   `links` (the operator links, from the newest sheet of each market); `pick` (a sheet's pick table, its hash and
   counts);
   `anchor` (the lab's monthly receipt roots as read on a day); `pledge` (the 15% pledge's figures as the lab's
-  ledger states them); `shelf` (the shelf report card, its facts and the sheets it was measured from); `note` (a
+  ledger states them); `shelf` (the shelf report card, its facts and the sheets it was measured from); `reports`
+  (buyers' reports copied from the lab, each tied to a payment on Base); `note` (a
   correction, a dispute and its answer, a change of method). Nothing is edited or removed. A correction is a new entry.
 
 The Merkle tree is the lab's pledge ledger construction, so one verifier proves a sheet row and a lab receipt:
@@ -255,6 +256,20 @@ leaves sorted; an odd node is promoted unchanged
 `agoranome-inspector anchor-lab <site>` copies the lab's monthly receipt roots from its public ledger into the
 book. From then on a receipt's proof from the lab must fold into the root the book kept:
 `agoranome-inspector verify-receipt <site> <proof URL or file>`.
+
+## Buyers' reports
+
+A buyer that paid an x402 seller can say what it got: delivered, not delivered, a wrong result, charged more than
+quoted, or too slow. The lab takes the report (`POST https://api.agoranome.com/reports`) only from the wallet that
+paid: the report names the payment's transaction on Base, which must move USDC from the signing wallet to an address
+the seller's row on this inspector's newest sheet asks payment to, and the wallet signs the report (EIP-191). One
+report per payment, never edited, and no free text: only the outcome.
+
+Each weekly run, `agoranome-inspector reports <site>` copies every report the lab's listing shows that the book
+doesn't hold yet into a `reports` entry, with a hash of the page as read. A report the book holds that the lab no
+longer lists is named in the next entry's `missing`, so none can be quietly removed. `verify` checks each report
+against the pick table of the sheet it names, and with `--chain RPC` reads its payment again on Base. Reports are
+signs, not verdicts: no rule counts them yet, and pick-1 doesn't.
 
 ## The published site
 
@@ -271,6 +286,7 @@ export INSPECTOR_SIGNING_KEY="$(cat inspector-key.pem)"   # or pass --key-file
 agoranome-inspector run site/ --private private/          # read the index, ask, judge, publish
 agoranome-inspector shelf site/                           # grade the shelves from the newest sheets
 agoranome-inspector anchor-lab site/                      # the lab's receipt roots and the pledge's figures
+agoranome-inspector reports site/                         # buyers' reports, each tied to a payment on Base
 ```
 
 `run` is polite by default: one request at a time to any host, half a second between a host's listings, at most

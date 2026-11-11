@@ -59,6 +59,10 @@ if [ -f "$SITE/book.jsonl" ]; then
   if ! "$INSPECTOR" anchor-lab "$SITE" ${LAB_LEDGER:+--ledger "$LAB_LEDGER"}; then
     echo "::warning::The lab's pledge ledger was not put in the book this week; see the log above."
   fi
+  # Buyers' reports, each tied to a payment on Base, from the lab's public listing (counts only in this log).
+  if ! "$INSPECTOR" reports "$SITE" ${LAB_REPORTS:+--source "$LAB_REPORTS"}; then
+    echo "::warning::The lab's buyers' reports were not put in the book this week; see the log above."
+  fi
   touch "$SITE/.nojekyll"
   # A pinned first key, once Shariar has published it as the repository variable INSPECTOR_FIRST_KID.
   "$INSPECTOR" verify "$SITE" --all ${INSPECTOR_FIRST_KID:+"--key=$INSPECTOR_FIRST_KID"}

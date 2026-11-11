@@ -288,6 +288,44 @@ def check_pledge(entry: Dict[str, Any], report: Report, chain_rpc: Optional[str]
                f"transfer(s){', checked on the chain' if chain_rpc else ''}" if not problems else "; ".join(problems))
 
 
+def check_reports(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+                  report: Report, chain_rpc: Optional[str] = None,
+                  post: Optional[Callable[[str, bytes], bytes]] = None) -> None:
+    """Buyers' reports in one entry: their formats, against the pick table of the sheet each names, and with an
+    RPC their payments on the chain (reports.py)."""
+    from agoranome_inspector import pledge as pledge_lib
+    from agoranome_inspector import reports as reports_lib
+
+    body = entry["body"]
+    label = f"reports {entry['seq']}"
+    problems = reports_lib.check(body, [e for e in entries if e["seq"] < entry["seq"]])
+    tables: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    def table_for(sheet_id: str) -> Optional[Dict[str, Any]]:
+        if sheet_id not in tables:
+            pick = next((e for e in entries if e["kind"] == "pick" and e["seq"] < entry["seq"]
+                         and (e["body"].get("sheet") or {}).get("id") == sheet_id), None)
+            tables[sheet_id] = None
+            if pick is not None:
+                try:
+                    data = read(_safe(pick["body"]["file"]))
+                    if sha256_hex(data) == pick["body"].get("sha256"):
+                        tables[sheet_id] = json.loads(data)
+                except Exception:
+                    pass
+        return tables[sheet_id]
+    if not problems:
+        problems = reports_lib.check_rows(body, table_for)
+    if chain_rpc and not problems:
+        problems = reports_lib.check_transfers(body, chain_rpc, post or pledge_lib.http_post)
+    n = len(body.get("reports") or [])
+    report.add(label, not problems,
+               f"{n} new report(s), {body.get('held')} held, {len(body.get('missing') or [])} no longer listed by "
+               f"the lab; each against its sheet's pick table{', and its payment on the chain' if chain_rpc else ''}"
+               if not problems else "; ".join(problems[:5]) + (f" (and {len(problems) - 5} more)"
+                                                                if len(problems) > 5 else ""))
+
+
 def recheck(sheet: Dict[str, Any], n: int, ask: Callable[[Dict[str, Any]], Dict[str, Any]],
             rng: Optional[random.Random] = None) -> Dict[str, Any]:
     rng = rng or random.Random()
@@ -349,6 +387,9 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
     pledges = entries_of("pledge", entries)
     for entry in (pledges if every else pledges[-1:]):
         check_pledge(entry, report, chain_rpc, post)
+    reported = entries_of("reports", entries)
+    for entry in (reported if every else reported[-1:]):
+        check_reports(read, entries, entry, report, chain_rpc, post)
     shelves = entries_of("shelf", entries)
     for entry in (shelves if every else shelves[-1:]):
         from agoranome_inspector import shelf as shelf_lib

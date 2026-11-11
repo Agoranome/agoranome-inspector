@@ -245,6 +245,40 @@ def cmd_anchor_lab(args) -> int:
     return 0
 
 
+def cmd_reports(args) -> int:
+    """Copy buyers' reports from the lab's listing into the book (reports.py). Prints counts only."""
+    import urllib.error
+
+    from agoranome_inspector import reports
+    from agoranome_inspector.book import Book, utc_now
+    from agoranome_inspector.publish import BOOK, write_head
+
+    try:
+        raw = reports.read_reports(args.source)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print(json.dumps({"unchanged": True, "note": "the lab doesn't list buyers' reports yet"}))
+            return 0
+        raise
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    body = reports.reports_body(args.source, raw, utc_now(), entries)
+    problems = reports.check(body, entries)
+    if problems:
+        print("the lab's reports are not put in the book: " + "; ".join(problems[:5]), file=sys.stderr)
+        return 3
+    last = [e for e in entries if e.get("kind") == "reports"]
+    if not body["reports"] and body["missing"] == ((last[-1]["body"].get("missing") or []) if last else []):
+        print(json.dumps({"unchanged": True, "held": body["held"], "listed": body["listed"]}))
+        return 0
+    entry = book.append(_key(args), "reports", body)
+    write_head(site, book)
+    print(json.dumps({"seq": entry["seq"], "new": len(body["reports"]), "held": body["held"],
+                      "missing": len(body["missing"]), "refused": body["refused"]}))
+    return 0
+
+
 def cmd_shelf(args) -> int:
     from agoranome_inspector import shelf
     from agoranome_inspector.book import Book, entries_of
@@ -416,6 +450,12 @@ def parser() -> argparse.ArgumentParser:
     a.add_argument("--ledger", default="https://api.agoranome.com/impact/ledger")
     a.add_argument("--key-file")
     a.set_defaults(func=cmd_anchor_lab)
+
+    rp = sub.add_parser("reports", help="copy buyers' reports, each tied to a payment on Base, into the book")
+    rp.add_argument("site")
+    rp.add_argument("--source", default="https://api.agoranome.com/reports.json")
+    rp.add_argument("--key-file")
+    rp.set_defaults(func=cmd_reports)
 
     sh = sub.add_parser("shelf", help="grade the shelves machines shop from, by the rule shelf-1")
     sh.add_argument("site")
