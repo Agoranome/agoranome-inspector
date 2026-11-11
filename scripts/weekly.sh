@@ -33,11 +33,12 @@ else
 fi
 
 # Each market in turn, into the same book. A market joins this list once its trial runs have been checked.
-# A sheet the check before signing holds is not published: the other markets still run and are published, then
-# the job fails so that GitHub tells the repository's owner. After looking, start the workflow by hand with
-# "publish anyway" to publish it.
+# A sheet the check before signing holds is not published, and a market whose run fails (its catalog unreadable,
+# say) publishes nothing: the other markets still run and are published, then the job fails so that GitHub tells
+# the repository's owner. After looking at a held sheet, start the workflow by hand with "publish anyway".
 held=""
-for market in ${RUN_MARKETS:-x402}; do
+failed=""
+for market in ${RUN_MARKETS:-x402 mpp}; do
   set +e
   "$INSPECTOR" run "$SITE" --market "$market" --private "$PRIVATE" ${PUBLISH_ANYWAY:+--publish-anyway} ${RUN_ARGS:-}
   code=$?
@@ -45,7 +46,8 @@ for market in ${RUN_MARKETS:-x402}; do
   if [ "$code" -eq 3 ]; then
     held="$held $market"
   elif [ "$code" -ne 0 ]; then
-    exit "$code"
+    failed="$failed $market"
+    echo "::error::The $market run failed (exit $code) and published nothing; the other markets go on."
   fi
 done
 
@@ -68,5 +70,7 @@ fi
 
 if [ -n "$held" ]; then
   echo "::error::Held by the check before signing, not published:$held. See the log above for why."
+fi
+if [ -n "$held$failed" ]; then
   exit 1
 fi

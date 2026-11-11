@@ -218,8 +218,9 @@ It needs, once, in the repository's settings:
 3. **Pages**: source "Deploy from a branch", branch `gh-pages`, folder `/ (root)`. The branch exists after the first
    run. The site is then at `https://shariar-k.github.io/agoranome1/`.
 
-Each market in the repository variable `RUN_MARKETS` (`x402` when it is not set; `x402 mpp` for both) runs in turn
-into the same book; a market joins the list once its trial runs have been checked.
+Each market in the repository variable `RUN_MARKETS` (`x402 mpp` when it is not set; `x402` for x402 alone) runs
+in turn into the same book. A market whose run fails publishes nothing that week; the others are still published,
+and the job then fails so that GitHub tells the owner.
 
 **The check before signing.** The verifier proves the book is consistent, not that a week's reading is sound, and
 the book only grows. So `run` holds a sheet unpublished, and the job fails so that GitHub tells the owner, when the

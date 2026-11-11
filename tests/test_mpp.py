@@ -246,3 +246,16 @@ def test_an_endpoint_that_checks_the_request_is_asked_with_its_example_and_judge
     assert "hello" not in json.dumps(sheet)                          # the example is sent, not published
     from agoranome_inspector.checks import before_signing
     assert before_signing(sheet) == []                               # wants_input is not an unanswered ask
+
+
+def test_a_price_per_record_is_not_compared_with_a_price_per_request():
+    per_record = dict(payment("10"), unitType="record")
+    per_request = dict(payment("10000"), unitType="request")
+    found = mpp.listings({"services": [service("units", [endpoint("GET", "/v1/rows", per_record),
+                                                         endpoint("GET", "/v1/one", per_request)])]})
+    by = {x["resource"]: x["listed"][0] for x in found["listings"]}
+    rows_listed, one = by["GET https://units.example/v1/rows"], by["GET https://units.example/v1/one"]
+    assert rows_listed["amount"] is None and rows_listed["unit"] == "record"
+    assert one["amount"] == "10000" and one["unit"] == "request"
+    seen = {"status": 402, "options": offers([challenge("4000")])}
+    assert judge([rows_listed], seen)["price"] == "not_listed"

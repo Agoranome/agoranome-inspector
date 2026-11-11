@@ -50,6 +50,7 @@ KIND = "agoranome.mpp-sheet"
 RUN_KIND = "agoranome.mpp-run"
 FORMAT = 1
 ASKED_METHODS = ("GET", "POST")
+PER_REQUEST = ("request", "call")
 MAX_CHALLENGES = 16
 CAP = 200
 TOKEN = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
@@ -390,7 +391,9 @@ def listings(catalog: Dict[str, Any]) -> Dict[str, Any]:
             if not re.match(r"^[A-Z]{3,7}$", method):
                 skipped["bad_method"] += 1
                 continue
-            dynamic = bool(pay.get("dynamic"))
+            # A price per unit (per record, per minute) is not a price per request, so it is not compared.
+            unit = token(pay.get("unitType"))
+            dynamic = bool(pay.get("dynamic")) or (unit is not None and unit.lower() not in PER_REQUEST)
             decimals = pay.get("decimals")
             listed = {
                 "method": token(pay.get("method")),
@@ -399,6 +402,7 @@ def listings(catalog: Dict[str, Any]) -> Dict[str, Any]:
                 "amount": None if dynamic else networks.amount(pay.get("amount")),
                 "decimals": decimals if isinstance(decimals, int) and not isinstance(decimals, bool) else None,
                 "dynamic": dynamic,
+                "unit": unit.lower() if unit else None,
                 "recipient": None,
             }
             resource = f"{method} {url}"

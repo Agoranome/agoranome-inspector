@@ -19,7 +19,8 @@ It compares the way x402's `sheet-1` does (the same comparison code), with an MP
 place of the network, its currency in the place of the asset, its intent in the place of the scheme and its
 recipient in the place of the pay-to address. Two differences: the catalog names no recipient, so the recipient is
 never held against anyone (`pay_to` is `not_listed`, and a matching price is enough for `matches_listing`); and a
-listing that marks its price dynamic states no price to compare (`not_listed`).
+listing that marks its price dynamic, or prices per unit other than the request, states no price to compare
+(`not_listed`).
 """
 
 from typing import Any, Dict, List, Optional
@@ -50,7 +51,8 @@ METHOD = [
     "Comparing one listed payment: the live challenges with the same method, currency and intent are its "
     "candidates (same method and currency, any intent, when none has the same intent). Its price is as_listed "
     "when a candidate asks exactly the listed amount, below_listed when the cheapest asks less, above_listed "
-    "when every candidate asks more. A listing marked dynamic states no price (not_listed).",
+    "when every candidate asks more. A listing marked dynamic, or priced per unit other than the request (per "
+    "record, per minute), states no price per request (not_listed).",
     "price of the row: listed_option_missing when the listed payment has no candidate; not_listed when the "
     "listing states no usable price; else above_listed, below_listed or as_listed.",
     "pay_to: not_listed, because the catalog names no recipient; the recipient each challenge names is kept in "
