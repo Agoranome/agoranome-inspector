@@ -106,6 +106,12 @@ def test_book_refuses_a_stranger_and_a_wrong_pin(tmp_path):
     assert not check_chain(book.entries(), since={"seq": 1, "hash": "0x" + "ab" * 32}).ok
 
 
+def test_a_pasted_pin_with_spaces_still_matches(tmp_path):
+    signer, book = _book(tmp_path)
+    assert check_chain(book.entries(), pinned_kid=f"  {signer.kid}\n").ok
+    assert not check_chain(book.entries(), pinned_kid=f" {Signer.generate().kid} ").ok
+
+
 def test_book_hands_over_to_a_new_key(tmp_path):
     signer, book = _book(tmp_path, n=1)
     new = Signer.generate()
