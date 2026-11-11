@@ -88,6 +88,8 @@ def check_chain(entries: List[Dict[str, Any]], pinned_kid: Optional[str] = None,
     thumbprint as published elsewhere; `since` is an entry kept earlier ({"seq", "hash"}) that must still be
     in the book unchanged."""
     found = Check(entries=len(entries))
+    # A kid is base64url, so it never holds spaces: a pasted one may carry a stray space or line end.
+    pinned_kid = (pinned_kid or "").strip() or None
     if not entries:
         found.failures.append("the book is empty")
         return found
