@@ -20,8 +20,8 @@ permissions:
 
 jobs:
   trial:
-    # On the working branch, only a commit whose message says [trial] starts it.
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[trial]')
+    # On the working branch, only a commit whose message says [trial] (or [trial mpp]) starts it.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[trial')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -31,6 +31,8 @@ jobs:
           python-version: "3.12"
       - run: pip install -e .
       - name: Trial
+        # A commit saying [trial mpp] runs the MPP trial alone.
+        if: ${{ !contains(github.event.head_commit.message, '[trial mpp]') }}
         env:
           SAMPLE: ${{ github.event.inputs.sample || '1500' }}
           BUDGET: ${{ github.event.inputs.budget || '900' }}

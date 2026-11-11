@@ -13,6 +13,7 @@ import random
 import tempfile
 import time
 from collections import Counter
+from urllib.parse import urlsplit
 
 from agoranome_inspector import mpp
 from agoranome_inspector import rule_mpp
@@ -156,6 +157,97 @@ def _verify(built: dict) -> dict:
                 "sheet_bytes_per_row": round(len(sheet_lib.to_bytes(built)) / max(1, len(built["rows"])))}
 
 
+WORDS = ("required", "missing", "invalid", "validation", "expected", "must", "body", "param", "query", "field",
+         "schema", "json", "payment", "unauthorized", "api key", "apikey", "token", "not allowed")
+
+
+def _family(headers) -> str:
+    kind = (headers.get("content-type") or "").lower()
+    for name in ("json", "html", "text"):
+        if name in kind:
+            return name
+    return "other" if kind else "none"
+
+
+def _operation(spec, listing):
+    paths = spec.get("paths") if isinstance(spec, dict) else None
+    if not isinstance(paths, dict):
+        return None
+    path = urlsplit(listing["url"]).path or "/"
+    for key, item in paths.items():
+        if isinstance(item, dict) and (key == path or path.endswith(key)):
+            op = item.get(listing["http_method"].lower())
+            return op if isinstance(op, dict) else None
+    return None
+
+
+def _why_4xx(sample, seen, fetcher, limit=150) -> dict:
+    """Why MPP endpoints answer 4xx to an unpaid ask: counts only, nothing named or kept."""
+    rows = [x for x in sample if (seen.get(x["resource"]) or {}).get("status") not in (None, 402, 404, 410)
+            and 400 <= (seen.get(x["resource"]) or {}).get("status") < 500][:limit]
+    out = {"rows": len(rows), "status": Counter(), "http_method": Counter(), "dynamic": Counter(),
+           "intent": Counter(), "content_type": Counter(), "words": Counter(), "post_without_body": Counter(),
+           "openapi": Counter()}
+    specs = {}
+    for x in rows:
+        listed = x["listed"][0]
+        out["status"][str(seen[x["resource"]]["status"])] += 1
+        out["http_method"][x["http_method"]] += 1
+        out["dynamic"][str(listed.get("dynamic"))] += 1
+        out["intent"][str(listed.get("intent"))] += 1
+        try:
+            f = fetcher.fetch(x["url"], x["http_method"], {} if x["http_method"] == "POST" else None)
+            out["content_type"][_family(f.headers)] += 1
+            text = (f.body or b"")[:4096].decode("utf-8", "replace").lower()
+            for w in WORDS:
+                if w in text:
+                    out["words"][w] += 1
+        except Exception as e:  # noqa: BLE001 - a diagnostic count
+            out["content_type"]["error " + type(e).__name__] += 1
+        if x["http_method"] == "POST":
+            try:
+                out["post_without_body"][str(fetcher.fetch(x["url"], "POST", None).status)] += 1
+            except Exception as e:  # noqa: BLE001
+                out["post_without_body"]["error " + type(e).__name__] += 1
+        host = x["host"]
+        if host not in specs and len(specs) < 60:
+            try:
+                f = fetcher.fetch(f"https://{host}/openapi.json", "GET")
+                specs[host] = json.loads(f.body) if f.status == 200 else None
+            except Exception:  # noqa: BLE001
+                specs[host] = None
+        spec = specs.get(host)
+        if host not in specs:
+            out["openapi"]["host not tried"] += 1
+        elif spec is None:
+            out["openapi"]["no spec"] += 1
+        else:
+            op = _operation(spec, x)
+            if op is None:
+                out["openapi"]["spec, operation not found"] += 1
+            else:
+                dumped = json.dumps(op)
+                out["openapi"]["operation found"] += 1
+                if op.get("requestBody"):
+                    out["openapi"]["with requestBody"] += 1
+                if op.get("parameters"):
+                    out["openapi"]["with parameters"] += 1
+                if '"example' in dumped:
+                    out["openapi"]["with an example"] += 1
+                if "x-payment-info" in dumped:
+                    out["openapi"]["with x-payment-info"] += 1
+    return {k: (top(v, 20) if isinstance(v, Counter) else v) for k, v in out.items()}
+
+
+def _catalog_keys(raw) -> dict:
+    services = [s for s in raw.get("services") or [] if isinstance(s, dict)]
+    endpoints = [e for s in services for e in s.get("endpoints") or [] if isinstance(e, dict)]
+    pays = [e["payment"] for e in endpoints if isinstance(e.get("payment"), dict)]
+    return {"service": top(Counter(k for s in services for k in s), 30),
+            "endpoint": top(Counter(k for e in endpoints for k in e), 30),
+            "payment": top(Counter(k for p in pays for k in p), 30)}
+
+
 def trial_mpp(args) -> None:
     """The MPP catalog, asked unpaid: counts only, no service named."""
     t0 = time.monotonic()
@@ -195,6 +287,11 @@ def trial_mpp(args) -> None:
     report["mismatching_hosts"] = len({r["host"] for r in _differing(built["rows"])})
     report["check_before_signing"] = before_signing(built)
     report["verify"] = _verify(built)
+    report["why_4xx"] = _why_4xx(sample, seen, fetcher)
+    try:
+        report["catalog_keys"] = _catalog_keys(json.loads(mpp.CatalogReader().client.get(mpp.CATALOG_URL).content))
+    except Exception as e:  # noqa: BLE001
+        report["catalog_keys"] = {"error": type(e).__name__}
     print(json.dumps(report, indent=2))
 
 
