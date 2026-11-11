@@ -95,6 +95,24 @@ def cmd_verify_receipt(args) -> int:
     return 0 if found["ok"] else 1
 
 
+def cmd_check_delivery(args) -> int:
+    """A paid lab answer's receipt is bound to its result: recompute the SHA-256 of the result's RFC 8785 form."""
+    from agoranome_inspector.canonical import jcs, sha256_hex
+
+    raw = sys.stdin.buffer.read() if args.file in (None, "-") else Path(args.file).read_bytes()
+    body = json.loads(raw)
+    stated = ((body.get("receipt") or {}).get("delivery") or {}).get("sha256") if isinstance(body, dict) else None
+    if not stated or "result" not in body:
+        print("FAIL  the answer has no result, or its receipt names no delivery hash")
+        return 1
+    found = sha256_hex(jcs(body["result"]))
+    ok = found == str(stated).lower()
+    print(json.dumps({"ok": ok, "receipt_id": body["receipt"].get("receipt_id"), "stated": stated,
+                      "recomputed": found, "amount_atomic": body["receipt"].get("amount_atomic"),
+                      "ceiling_atomic": body["receipt"].get("ceiling_atomic")}, indent=2))
+    return 0 if ok else 1
+
+
 def cmd_pick(args) -> int:
     from agoranome_inspector.picking import load_tables, describe
     from agoranome_inspector.pick import rank
@@ -388,6 +406,10 @@ def parser() -> argparse.ArgumentParser:
     vr.add_argument("site")
     vr.add_argument("proof", help="the proof's URL or a file")
     vr.set_defaults(func=cmd_verify_receipt)
+
+    cd = sub.add_parser("check-delivery", help="check a paid lab answer's receipt names the hash of its result")
+    cd.add_argument("file", nargs="?", help="the answer's JSON (default: standard input)")
+    cd.set_defaults(func=cmd_check_delivery)
 
     pk = sub.add_parser("pick", help="the fair pick: endpoints for a job, ranked by the published rule pick-1")
     pk.add_argument("site", help="the published site (URL or directory)")

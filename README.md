@@ -257,6 +257,14 @@ leaves sorted; an odd node is promoted unchanged
 book. From then on a receipt's proof from the lab must fold into the root the book kept:
 `agoranome-inspector verify-receipt <site> <proof URL or file>`.
 
+## Receipts bound to what was delivered
+
+Every paid answer from the lab carries a signed receipt naming the SHA-256 of the RFC 8785 (JCS) form of the result
+it came with (`receipt.delivery.sha256`), and the lab's ledger keeps that hash beside the receipt (its proof page
+shows it). A buyer can show what it was sold, and anyone can recompute the hash:
+`agoranome-inspector check-delivery answer.json`. On a row set paid with x402's `upto` scheme the receipt also names
+the ceiling the buyer signed for (`ceiling_atomic`) beside what was charged for the rows delivered (`amount_atomic`).
+
 ## Buyers' reports
 
 A buyer that paid an x402 seller can say what it got: delivered, not delivered, a wrong result, charged more than
@@ -287,6 +295,7 @@ agoranome-inspector run site/ --private private/          # read the index, ask,
 agoranome-inspector shelf site/                           # grade the shelves from the newest sheets
 agoranome-inspector anchor-lab site/                      # the lab's receipt roots and the pledge's figures
 agoranome-inspector reports site/                         # buyers' reports, each tied to a payment on Base
+agoranome-inspector check-delivery answer.json            # a paid lab answer's receipt names its result's hash
 ```
 
 `run` is polite by default: one request at a time to any host, half a second between a host's listings, at most

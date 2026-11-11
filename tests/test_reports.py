@@ -104,3 +104,26 @@ def test_before_the_lab_lists_reports_the_command_says_so_and_adds_nothing(tmp_p
     assert main(["reports", str(tmp_path / "site")]) == 0
     assert json.loads(capsys.readouterr().out)["unchanged"] is True
     assert not (tmp_path / "site" / "book.jsonl").exists()
+
+
+def test_check_delivery_recomputes_the_hash_a_lab_receipt_names(tmp_path, capsys):
+    import hashlib
+
+    from agoranome_inspector.canonical import jcs
+
+    # RFC 8785's own examples: numbers as ECMAScript writes them, keys in UTF-16 order.
+    assert jcs([0.0, -0.0, 1e21, 1e-7, 0.0002, 333333333.33333329, 4.50, 7]) == \
+        b'[0,0,1e+21,1e-7,0.0002,333333333.3333333,4.5,7]'
+    assert jcs({"\u20ac": 1, "\U0001F600": 2, "\ufb33": 3, "\r": 4}) == \
+        '{"\\r":4,"\u20ac":1,"\U0001F600":2,"\ufb33":3}'.encode()
+    result = {"rows": [["https://a.example/x", 0.004]], "count": 1}
+    stated = "0x" + hashlib.sha256(b'{"count":1,"rows":[["https://a.example/x",0.004]]}').hexdigest()
+    answer = tmp_path / "answer.json"
+    answer.write_text(json.dumps({"result": result, "receipt": {"receipt_id": "0x1", "amount_atomic": "200",
+                                                                "delivery": {"sha256": stated}}}))
+    assert main(["check-delivery", str(answer)]) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    answer.write_text(json.dumps({"result": {**result, "count": 2}, "receipt": {"delivery": {"sha256": stated}}}))
+    assert main(["check-delivery", str(answer)]) == 1
+    answer.write_text(json.dumps({"result": result}))
+    assert main(["check-delivery", str(answer)]) == 1
