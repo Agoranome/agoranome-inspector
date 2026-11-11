@@ -176,7 +176,7 @@ the order uses and its words, and a `pick` entry in the book with its hash. The 
 but the words from the sheet, and checks the words' form. Anyone gets the same order:
 
 ```bash
-agoranome-inspector pick https://agoranome.github.io/agoranome-inspector/ "weather forecast for a city" --budget 0.01
+agoranome-inspector pick https://inspector.agoranome.com/ "weather forecast for a city" --budget 0.01
 agoranome-inspector mcp      # the same as two MCP tools on stdio: fair_pick and seller_row
 ```
 
@@ -363,7 +363,7 @@ Nothing else is needed to check it:
 
 ```
 agoranome-inspector verify-record record.json --key <first key's kid>
-agoranome-inspector verify-record record.json --key <kid> --against https://agoranome.github.io/agoranome-inspector/
+agoranome-inspector verify-record record.json --key <kid> --against https://inspector.agoranome.com/
 ```
 
 The first recomputes each entry's hash, checks its Ed25519 signature by the key in force at its place in the book,
@@ -423,7 +423,10 @@ It needs, once, in the repository's settings:
 2. **Secrets and variables, Actions, variable `INSPECTOR_FIRST_KID`** (optional): the kid `keygen` printed. The run
    then refuses to publish a book whose first key is any other.
 3. **Pages**: source "Deploy from a branch", branch `gh-pages`, folder `/ (root)`. The branch exists after the first
-   run. The site is then at `https://agoranome.github.io/agoranome-inspector/`.
+   run. The site is then at `https://inspector.agoranome.com/`: the branch carries a `CNAME` file with that name,
+   and agoranome.com's DNS has a CNAME record `inspector` pointing to `agoranome.github.io` (DNS only, not
+   proxied). Tick Enforce HTTPS once GitHub has issued the certificate. The old address,
+   `https://agoranome.github.io/agoranome-inspector/`, forwards there.
 4. **Secrets and variables, Actions, secret `BASE_RPC`** (optional): a Base mainnet RPC address for the signs from
    the chain. Without it the run skips them and says so.
 
