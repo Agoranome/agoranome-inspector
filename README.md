@@ -358,8 +358,8 @@ turn it on again in the Actions tab.
 
 ### Model uses, capped at $20 a month
 
-With the secret `ANTHROPIC_API_KEY` set, three jobs use a model (`claude-opus-5-5` unless the repository variable
-`INSPECTOR_MODEL` names another), each only after a sheet is published and never in its way:
+With the secret `ANTHROPIC_API_KEY` set, five jobs use a model (`claude-opus-5-5` unless the repository variable
+`INSPECTOR_MODEL` names another), each after the sheets are published or apart from them, never in their way:
 
 - **The weekly note.** After the weekly run has published, a model writes a short note on the week from the counts
   in the signed book (no row, host, address or seller's text is shown to it). Code checks that every number in the
@@ -368,6 +368,20 @@ With the secret `ANTHROPIC_API_KEY` set, three jobs use a model (`claude-opus-5-
 - **The run doctor.** When the weekly run is held by the check before signing or fails, the job opens an issue with
   the held reasons and the end of the log, and a model's reading of them. Without a model the issue carries the
   facts alone.
+- **The buyer test** (weekly, after the note). A model reads Agoranome's own paid listings as a buying agent would:
+  only the lab's own words, from `https://api.agoranome.com/openapi.json` (the command refuses any other host), each
+  beside what the newest sheet measured for it. For each it gives the job a buyer would type to find it, what it
+  expects to get, whether the listing as written fits what was measured, and a truthful rewrite of at most 300
+  characters. Code then runs the fair pick for that job (no model), to see whether a buyer who asks for it finds
+  the listing, and again with the rewrite's words; and drops any rewrite with a number not in the listing or the
+  measurements, a claim of standing, or words aimed at agents. It is written to `buyer-test/<sheet id>.json`,
+  outside the book. The rewrites are drafts for the lab's operator; nothing applies them.
+- **The verdict study** (once, by hand: `.github/workflows/verdict-study.yml`). Does a verdict shown beside an offer
+  move a buying model? Ten jobs, each with three offers Agoranome wrote on hosts under `.example`; in each set the
+  offer that lists the lowest price asked more than it lists. Each set is shown in three orders, with and without
+  the inspector's verdict beside every offer, and the model picks one. Code counts the picks and runs Fisher's
+  exact test; the result goes to `studies/verdict-influence-<day>.json` on the site and the run's artifact. Sixty
+  short calls, well under a dollar at the listed prices.
 - **The monthly red-team** (`.github/workflows/red-team.yml`, on the 2nd). A model reads this repository's code
   for ways a seller, a network or a mistake could make a sheet wrong or the run unsafe. The findings are sealed
   (AES-256-GCM, key derived from the signing key) before they go into a public issue, so an unfixed weakness is
@@ -383,8 +397,7 @@ call, and a call that would take the month past $20 is not made; after the call,
 the cost of the usage returned. The ledger is `spend.jsonl` on the branch `model-spend`, append-only, and the jobs
 that use it run one at a time. With no ledger, or a damaged one, no call is made. `agoranome-inspector spend
 --ledger spend.jsonl` shows the month's spend. As a second guard, set a $20 monthly spend limit on the API key's
-workspace in the Claude Console. Two more model uses (a buyer-model test and a one-off verdict-influence run) come
-with the fair pick in phase 2.
+workspace in the Claude Console.
 
 ## Where the code came from
 

@@ -379,6 +379,41 @@ def cmd_weekly_note(args) -> int:
     return 0
 
 
+def cmd_buyer_test(args) -> int:
+    """Agoranome's own listings read by a buying model, with the fair pick run on its jobs (buyers.py)."""
+    from agoranome_inspector import buyers
+    from agoranome_inspector.verify import http_get
+
+    try:
+        openapi = json.loads(http_get(args.openapi))
+    except Exception as e:  # noqa: BLE001 - the test is skipped; the sheets are unchanged
+        print(f"buyer test: the lab's listings were not read ({type(e).__name__}), so none this week")
+        return 0
+    base = args.openapi.rsplit("/openapi.json", 1)[0]
+    try:
+        path = buyers.buyer_test(args.site, openapi, base=base)
+    except ValueError as e:
+        print(f"buyer test: {e}")
+        return 2
+    if path is None:
+        print("buyer test: none this week")
+        return 0
+    print(f"buyer test: {path} " + json.dumps(json.loads(path.read_text())["counts"], sort_keys=True))
+    return 0
+
+
+def cmd_verdict_study(args) -> int:
+    from agoranome_inspector import buyers
+
+    found = buyers.verdict_study(rotations=args.rotations)
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out).write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
+    print(json.dumps({"counts": found["counts"], "fisher_one_sided_p": found["fisher_one_sided_p"],
+                      "out": args.out}, sort_keys=True))
+    answered = sum(c["answered"] for c in found["counts"].values())
+    return 0 if answered else 2
+
+
 def cmd_doctor(args) -> int:
     from agoranome_inspector.assist import doctor_issue, open_issue
 
@@ -547,6 +582,18 @@ def parser() -> argparse.ArgumentParser:
     wn = sub.add_parser("weekly-note", help="a model's short note on the newest sheets, numbers checked (notes/)")
     wn.add_argument("site")
     wn.set_defaults(func=cmd_weekly_note)
+
+    bt = sub.add_parser("buyer-test", help="a model reads Agoranome's own listings as a buyer; the fair pick runs "
+                                           "on its jobs (buyer-test/)")
+    bt.add_argument("site")
+    bt.add_argument("--openapi", default="https://api.agoranome.com/openapi.json",
+                    help="the lab's /openapi.json (only api.agoranome.com is read)")
+    bt.set_defaults(func=cmd_buyer_test)
+
+    vs = sub.add_parser("verdict-study", help="once: does a shown verdict move a buying model? (offers we wrote)")
+    vs.add_argument("--out", required=True)
+    vs.add_argument("--rotations", type=int, default=3, choices=range(1, 4))
+    vs.set_defaults(func=cmd_verdict_study)
 
     d = sub.add_parser("doctor", help="open an issue on a held or failed weekly run, with a model's reading")
     d.add_argument("--log", help="the run's log")
