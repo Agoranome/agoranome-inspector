@@ -33,10 +33,12 @@ Nothing published holds a secret or the index's demand counts (unless the sheet 
 
 import html
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agoranome_inspector import changes as changes_lib
+from agoranome_inspector import charts
 from agoranome_inspector import links as links_lib
 from agoranome_inspector import pick as pick_lib
 from agoranome_inspector import sheet as sheet_lib
@@ -410,6 +412,23 @@ def _accounts_section(entries) -> str:
                if rows else ""))
 
 
+def _charts(site: Path, sheets: List[Dict[str, Any]], newest: Dict[str, Dict[str, Any]]) -> str:
+    """The charts (charts.py), from the book's counts and from each market's newest sheet, read only if its hash
+    matches the book. A sheet that can't be read loses its row charts; a chart that fails is left out with a line on
+    stderr naming only the error's kind, so a chart never stops the page."""
+    loaded = {}
+    for market, entry in newest.items():
+        try:
+            loaded[market] = load_sheet(site, entry)
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"charts: the {market} sheet's rows were not read ({type(exc).__name__})", file=sys.stderr)
+    try:
+        return charts.section(sheets, loaded)
+    except Exception as exc:  # noqa: BLE001 - a chart is never worth the page
+        print(f"charts: left out ({type(exc).__name__})", file=sys.stderr)
+        return ""
+
+
 def write_index(site: Path, book: Book) -> None:
     """The page a person lands on. Every figure on it is in a sheet's book entry."""
     entries = book.entries()
@@ -421,6 +440,7 @@ def write_index(site: Path, book: Book) -> None:
     for x in sheets:
         newest[sheet_lib.market_of(x["body"])] = x
     sections = "".join(_market_section(x["body"]) for x in sorted(newest.values(), key=lambda x: -x["seq"]))
+    glance = _charts(site, sheets, newest)
     link_entries = entries_of("links", entries)
     if link_entries:
         c = link_entries[-1]["body"]["counts"]
@@ -441,7 +461,7 @@ def write_index(site: Path, book: Book) -> None:
 <h1>The open sheet</h1>
 <p class="lead">Paid endpoints that machines buy from, asked for their offer without paying and judged by a published
 rule. Free, under {e(LICENCE)}. Every figure here is signed in the open book.</p>
-{sections}<h2>Every sheet</h2>
+{glance}{sections}<h2>Every sheet</h2>
 <table><tr><th>Market</th><th>Sheet</th><th>Rows</th><th>Files</th><th>Merkle root</th></tr>{rows}</table>
 <h2>The open book</h2>
 <p>Every figure above is an entry in <a href="book.jsonl">the book</a> ({len(entries):,} entries), signed with the key
