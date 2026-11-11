@@ -31,7 +31,7 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 import httpx
 
 BLOCKED_SUFFIXES = (".local", ".localhost", ".internal", ".lan", ".home.arpa", ".corp")
-USER_AGENT = "Agoranome-inspector/0.1 (+https://github.com/shariar-k/agoranome-inspector; unpaid offer check, sends no payment)"
+USER_AGENT = "Agoranome-inspector/0.1 (+https://github.com/Agoranome/agoranome-inspector; unpaid offer check, sends no payment)"
 
 
 class FetchError(Exception):
