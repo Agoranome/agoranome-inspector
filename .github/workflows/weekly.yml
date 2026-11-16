@@ -10,6 +10,10 @@ name: Weekly sheet
 # its jobs (buyer-test/, outside the book), or, when the run is held or fails, an issue with a model's reading
 # of the log. All are under the month's cap in src/agoranome_inspector/models.py, and none can stop or change
 # a sheet: the measuring step never sees the model key.
+#
+# The Monday schedule is GitHub's to keep. The run of 16 Nov 2026 never started: no run was even queued, the first
+# Monday since the repository moved to the Agoranome organization (11 Nov). A change to this file registers the
+# schedule again under its new owner; a missed Monday can always be started by hand from the Actions tab.
 on:
   schedule:
     - cron: "17 6 * * 1"
