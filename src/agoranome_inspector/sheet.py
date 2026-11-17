@@ -28,8 +28,8 @@ from agoranome_inspector import networks
 from agoranome_inspector.bazaar import INDEX_URL, REAL_DEMAND_PAYERS, is_repeat_use
 from agoranome_inspector.canonical import canonical
 from agoranome_inspector.merkle import leaf_hash, merkle_root
-from agoranome_inspector.rule import METHOD, RULE
-from agoranome_inspector.rules import RULES
+from agoranome_inspector.rule2 import DOLLAR
+from agoranome_inspector.rules import CURRENT, METHODS, RULES
 
 KIND = "agoranome.x402-sheet"
 MARKET = "x402"
@@ -38,7 +38,7 @@ LICENCE = "CC BY 4.0"
 
 
 def row(listing: Dict[str, Any], seen: Optional[Dict[str, Any]], *, publish_index_counts: bool = False,
-        rule: str = RULE) -> Dict[str, Any]:
+        rule: str = CURRENT) -> Dict[str, Any]:
     out = {
         "resource": listing["resource"],
         "host": listing["host"],
@@ -65,7 +65,7 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         found = Counter(name(r["verdict"].get(key)) for r in rows)
         return dict(sorted(found.items()))
 
-    return {
+    found = {
         "rows": len(rows),
         "hosts": len({r["host"] for r in rows}),
         "answer": count("answer"),
@@ -76,6 +76,9 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "confirmed": sum(1 for r in rows if (r.get("seen") or {}).get("again") is not None),
         "fair_offer": sum(1 for r in rows if (r.get("seen") or {}).get("fair_offer")),
     }
+    if any("floating" in r["verdict"] for r in rows):     # sheet-2 on: the floating options' price, apart
+        found["floating"] = count("floating")
+    return found
 
 
 def market_of(sheet_or_body: Dict[str, Any]) -> str:
@@ -93,18 +96,18 @@ def root(sheet: Dict[str, Any]) -> Optional[str]:
 
 def build(sheet_id: str, listings: List[Dict[str, Any]], seen: Dict[str, Optional[Dict[str, Any]]], *,
           index: Dict[str, Any], probe: Dict[str, Any], publish_index_counts: bool = False,
-          min_payers: int = REAL_DEMAND_PAYERS, market: str = MARKET) -> Dict[str, Any]:
+          min_payers: int = REAL_DEMAND_PAYERS, market: str = MARKET, rule: str = CURRENT) -> Dict[str, Any]:
     """A sheet from the selected listings and what each answered (`seen`, keyed by resource; a listing missing
     from it was not asked in this run)."""
-    rows = sorted((row(x, seen.get(x["resource"]), publish_index_counts=publish_index_counts) for x in listings),
-                  key=lambda r: r["resource"])
+    rows = sorted((row(x, seen.get(x["resource"]), publish_index_counts=publish_index_counts, rule=rule)
+                   for x in listings), key=lambda r: r["resource"])
     return {
         "kind": KIND,
         "format": FORMAT,
         "market": market,
         "id": sheet_id,
-        "rule": RULE,
-        "method": METHOD,
+        "rule": rule,
+        "method": METHODS[rule],
         "licence": LICENCE,
         "selection": {
             "index": index.get("url") or INDEX_URL,
@@ -139,11 +142,48 @@ def cell(value: Any) -> str:
     return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 
+# From sheet-2 on: the floating options' price verdict beside the dollar one, the listed option shown is the one on
+# the asked option's network and asset, and USD is read from every dollar option the rule knows.
+CSV_COLUMNS_2 = CSV_COLUMNS[:5] + ["floating"] + CSV_COLUMNS[5:]
+
+
+def _usd(net: Optional[str], asset: Optional[str], atomic: Optional[str]) -> Optional[str]:
+    return networks.usd(net, asset, atomic, DOLLAR)
+
+
+def _to_csv_2(sheet: Dict[str, Any]) -> str:
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(CSV_COLUMNS_2)
+    for r in sheet["rows"]:
+        verdict, seen = r["verdict"], r.get("seen") or {}
+        asked = verdict.get("asked") or {}
+        stated = [o for o in r.get("listed") or [] if o]
+        same = [o for o in stated if (o.get("network"), o.get("asset")) == (asked.get("network"), asked.get("asset"))]
+        listed = (same or stated or [{}])[0]
+        matches = verdict.get("matches_listing")
+        writer.writerow([cell(v) for v in [
+            r["resource"], r["host"], r["category"], verdict["answer"], verdict.get("price") or "",
+            verdict.get("floating") or "",
+            verdict.get("pay_to") or "", "" if matches is None else str(matches).lower(), verdict.get("network") or "",
+            listed.get("network") or "", listed.get("asset") or "", listed.get("amount") or "",
+            _usd(listed.get("network"), listed.get("asset"), listed.get("amount")) or "",
+            listed.get("pay_to") or "", asked.get("network") or "", asked.get("asset") or "",
+            asked.get("amount") or "",
+            _usd(asked.get("network"), asked.get("asset"), asked.get("amount")) or "",
+            asked.get("pay_to") or "", seen.get("fair_offer") or "", seen.get("status") or "", seen.get("at") or "",
+            leaf_hash(r),
+        ]])
+    return out.getvalue()
+
+
 def to_csv(sheet: Dict[str, Any]) -> str:
     if market_of(sheet) == "mpp":
         from agoranome_inspector import mpp
 
         return mpp.to_csv(sheet)
+    if sheet.get("rule") != "sheet-1":
+        return _to_csv_2(sheet)
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
     writer.writerow(CSV_COLUMNS)

@@ -16,7 +16,8 @@
 
 A listing whose first answer differs from its listing in a way that counts against the seller (a higher price,
 a missing option, another pay-to address) is asked again a few seconds later, and the rule holds a difference
-against the seller only when both answers give it.
+against the seller only when both answers give it. When the price was higher and the offer gives an example input,
+the second ask sends that example: an endpoint priced by its input quotes its ceiling to an empty request.
 
 Politeness: one request at a time to any host, a pause between a host's listings, at most `per_host` listings
 of a host (its busiest first), hosts in order of demand, and a time budget for the whole run. A listing the run
@@ -35,8 +36,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from agoranome_inspector.bazaar import IndexReader, REAL_DEMAND_PAYERS, select
 from agoranome_inspector.fetch import SafeFetcher
-from agoranome_inspector.probe import ask, probe
-from agoranome_inspector.rule import judge, needs_confirmation
+from agoranome_inspector.probe import ask, ask_with, probe
+from agoranome_inspector.rule2 import judge, needs_confirmation, wants_example
 
 logger = logging.getLogger("inspector.measure")
 
@@ -59,19 +60,23 @@ class Settings:
 
 
 Asker = Callable[[Dict[str, Any]], Dict[str, Any]]
+ExampleAsker = Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]
 
 
 def ask_all(listings: List[Dict[str, Any]], fetcher: SafeFetcher, settings: Settings,
             sleep: Callable[[float], None] = time.sleep, monotonic: Callable[[], float] = time.monotonic,
             clock: Callable[[], str] = _now, *, asker: Optional[Asker] = None, again: Optional[Asker] = None,
+            again_with: Optional[ExampleAsker] = None,
             judge_fn: Callable[[List[Dict[str, Any]], Optional[Dict[str, Any]]], Dict[str, Any]] = judge
             ) -> Dict[str, Dict[str, Any]]:
     """Ask every listing it can within the budget; returns what each answered, keyed by resource. `asker` asks a
-    listing (with its retry), `again` asks it once more to confirm, `judge_fn` is the market's rule; the
-    defaults are x402's."""
+    listing (with its retry), `again` asks it once more to confirm, `again_with` asks it once more with the
+    example request its offer gave (an answer from `asker` carries it under "_example", which is taken out here),
+    `judge_fn` is the market's rule; the defaults are x402's."""
     asker = asker or (lambda listing: probe(fetcher, listing["resource"], retry_pause=settings.retry_pause,
-                                            sleep=sleep, clock=clock))
+                                            sleep=sleep, clock=clock, keep_example=True))
     again = again or (lambda listing: ask(fetcher, listing["resource"]))
+    again_with = again_with or (lambda listing, example: ask_with(fetcher, listing["resource"], example))
     by_host: Dict[str, List[Dict[str, Any]]] = {}
     for listing in listings:
         by_host.setdefault(listing["host"], []).append(listing)
@@ -88,9 +93,12 @@ def ask_all(listings: List[Dict[str, Any]], fetcher: SafeFetcher, settings: Sett
                 sleep(settings.host_pause)
             try:
                 found = asker(listing)
-                if needs_confirmation(judge_fn(listing["listed"], found)):
+                example = found.pop("_example", None)
+                verdict = judge_fn(listing["listed"], found)
+                if needs_confirmation(verdict):
                     sleep(settings.confirm_pause)
-                    found["again"] = {"at": clock(), **again(listing)}
+                    second = again_with(listing, example) if example and wants_example(verdict) else again(listing)
+                    found["again"] = {"at": clock(), **second}
                 seen[listing["resource"]] = found
             except Exception as e:   # one listing lost must not stop the host's others
                 logger.warning(f"probe of {listing['resource']} failed: {type(e).__name__}")

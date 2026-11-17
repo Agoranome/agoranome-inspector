@@ -31,6 +31,7 @@ For the inspector's operator:
   anchor-lab SITE                      copy the lab's monthly receipt roots and pledge figures into the book
   shelf SITE                           grade the shelves (the Bazaar, AgentCore, MPP, Skyfire) into the book
   note SITE TEXT                       a note in the book (a correction)
+  restate SITE SHEET [--rule R]        judge a published sheet again under a newer rule, beside it in the book
   statement SITE --type T ...          a payout, licence, prize, grant or credit in the accounts (accounts-1)
   close SITE [--period YYYY-MM]        close finished months: what each source earned and what the pledge owes
   signs SITE --rpc RPC                 payers and repeat payers of each x402 seller, from the chain (signs-1)
@@ -378,6 +379,16 @@ def cmd_note(args) -> int:
 
     entry = note(args.site, _key(args), args.text)
     print(json.dumps({"seq": entry["seq"], "hash": entry["hash"]}))
+    return 0
+
+
+def cmd_restate(args) -> int:
+    from agoranome_inspector.publish import restate
+    from agoranome_inspector.rules import CURRENT
+
+    entry = restate(args.site, args.sheet, args.rule or CURRENT, _key(args))
+    print(json.dumps({"seq": entry["seq"], "hash": entry["hash"], "headline": entry["body"]["headline"],
+                      "changed": entry["body"]["changed"]}))
     return 0
 
 
@@ -823,6 +834,13 @@ def parser() -> argparse.ArgumentParser:
                    help="x402 (Coinbase's Bazaar index) or mpp (the MPP catalog at mpp.dev)")
     measuring(r)
     r.set_defaults(func=cmd_run)
+
+    rs = sub.add_parser("restate", help="judge a published sheet again under a newer rule, beside it in the book")
+    rs.add_argument("site")
+    rs.add_argument("sheet", help="the sheet's id, e.g. x402-2026-11-16")
+    rs.add_argument("--rule", help="the rule to judge it under (default: the current rule)")
+    rs.add_argument("--key-file")
+    rs.set_defaults(func=cmd_restate)
 
     a = sub.add_parser("anchor-lab", help="copy the lab's monthly receipt roots and pledge figures into the book")
     a.add_argument("site")

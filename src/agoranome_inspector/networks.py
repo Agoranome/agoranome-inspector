@@ -106,9 +106,11 @@ def is_usdc(net: Optional[str], asset: Optional[str]) -> bool:
     return (net, asset) in USDC
 
 
-def usd(net: Optional[str], asset: Optional[str], atomic: Optional[str]) -> Optional[str]:
-    """The USD value of a USDC amount as an exact decimal string, None for any other asset."""
-    if atomic is None or not is_usdc(net, asset):
+def usd(net: Optional[str], asset: Optional[str], atomic: Optional[str], dollars: Any = None) -> Optional[str]:
+    """The USD value of a USDC amount as an exact decimal string, None for any other asset. `dollars` is the set of
+    (network, asset) pairs read as USDC (six decimals); USDC above when not given. Sheets name the set they used, so
+    a published table is rebuilt the same way."""
+    if atomic is None or (net, asset) not in (USDC if dollars is None else dollars):
         return None
     value = Decimal(int(atomic)).scaleb(-USDC_DECIMALS)
     return format(value.normalize(), "f") if value else "0"

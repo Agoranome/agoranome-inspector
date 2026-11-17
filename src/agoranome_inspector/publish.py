@@ -41,6 +41,7 @@ from agoranome_inspector import changes as changes_lib
 from agoranome_inspector import charts
 from agoranome_inspector import links as links_lib
 from agoranome_inspector import pick as pick_lib
+from agoranome_inspector import restate as restate_lib
 from agoranome_inspector import sheet as sheet_lib
 from agoranome_inspector import theme
 from agoranome_inspector.book import Book, entries_of
@@ -143,6 +144,50 @@ def publish(site_dir: str, sheet: Dict[str, Any], signer: Signer, time: Optional
     return out
 
 
+def restate(site_dir: str, sheet_id: str, rule: str, signer: Signer, time: Optional[str] = None) -> Dict[str, Any]:
+    """Judge a published sheet again under a newer rule and put the restatement into the book beside it. The sheet
+    itself is not touched. A sheet is restated under a rule once."""
+    site = Path(site_dir)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    sheet_entry = next((e for e in entries_of("sheet", entries) if e["body"]["id"] == sheet_id), None)
+    if sheet_entry is None:
+        raise RuntimeError(f"the book holds no sheet {sheet_id}")
+    if any(e["body"]["sheet"]["id"] == sheet_id and e["body"]["rule"]["to"] == rule
+           for e in entries_of("restatement", entries)):
+        raise RuntimeError(f"sheet {sheet_id} is already restated under {rule}")
+    sheet = load_sheet(site, sheet_entry)
+    found = restate_lib.build(sheet, rule)
+    file = restate_lib.file_for(sheet_id, rule)
+    sha = _write(site / file, restate_lib.to_bytes(found))
+    entry = book.append(signer, "restatement", {
+        "sheet": {"seq": sheet_entry["seq"], "id": sheet_id},
+        "market": found["market"],
+        "rule": found["rule"],
+        "file": file,
+        "sha256": sha,
+        "headline": found["headline"],
+        "summary": found["summary"]["after"],
+        "changed": len(found["changed"]),
+    }, time=time)
+    write_head(site, book)
+    write_index(site, book)
+    return entry
+
+
+def restated_view(entries: List[Dict[str, Any]], sheet_entry: Dict[str, Any]) -> Dict[str, Any]:
+    """A sheet entry as the page shows it: with the counts of its newest restatement, when it has one (the sheet
+    and its own entry are unchanged; the page says it is restated and links both)."""
+    found = [e for e in entries_of("restatement", entries)
+             if (e["body"].get("sheet") or {}).get("seq") == sheet_entry["seq"]]
+    if not found:
+        return sheet_entry
+    r = found[-1]["body"]
+    return {**sheet_entry, "body": {**sheet_entry["body"], "summary": r["summary"], "rule": r["rule"]["to"],
+                                    "restated": {**r, "published_summary": sheet_entry["body"]["summary"],
+                                                 "time": found[-1]["time"]}}}
+
+
 def publish_pick(site: Path, book: Book, sheet_entry: Dict[str, Any], sheet: Dict[str, Any],
                  words: Dict[str, List[str]], signer: Signer, time: Optional[str] = None) -> Dict[str, Any]:
     """The sheet's pick table (pick.py), written to the site and put into the book."""
@@ -171,7 +216,30 @@ MARKET_WORDS = {
 }
 
 
-def _market_section(body: Dict[str, Any]) -> str:
+CHANGE_WORDS = (
+    ("joined", "joined the sheet"), ("left", "left it"), ("price_raised", "raised the price asked"),
+    ("price_cut", "cut it"), ("listed_price_changed", "changed the price their listing states"),
+    ("pay_to_changed", "changed the address they ask payment to"), ("went_dark", "stopped giving a payable offer"),
+    ("came_back", "came back"), ("verdict_changed", "changed verdict"),
+)
+
+
+def _changes_line(entries: List[Dict[str, Any]], body: Dict[str, Any]) -> str:
+    """What changed since the market's sheet before, from the change log the book signed for this sheet."""
+    e = html.escape
+    log = next((x for x in reversed(entries_of("changes", entries)) if x["body"].get("to") == body["id"]), None)
+    if log is None:
+        return ""
+    counts = log["body"].get("counts") or {}
+    said = [f"{counts[k]:,} {words}" for k, words in CHANGE_WORDS if counts.get(k)]
+    if not said:
+        return (f"<p><strong>What changed since {e(log['body']['from'])}:</strong> nothing the change log counts. "
+                f"<a href=\"{e(log['body']['file'])}\">The change log</a>.</p>\n")
+    return (f"<p><strong>What changed since {e(log['body']['from'])}:</strong> {e('; '.join(said))}. "
+            f"<a href=\"{e(log['body']['file'])}\">Every change, listing by listing</a>.</p>\n")
+
+
+def _market_section(body: Dict[str, Any], changes: str = "") -> str:
     e = html.escape
     s = body["summary"]
     name, who = MARKET_WORDS.get(sheet_lib.market_of(body), (sheet_lib.market_of(body), "Every listing"))
@@ -180,12 +248,36 @@ def _market_section(body: Dict[str, Any]) -> str:
     payable = s.get("answer", {}).get("payable", 0)
     price = s.get("price", {})
     pay_to = s.get("pay_to", {})
+    restated = body.get("restated")
+    note = ""
+    if restated:
+        head = restated["headline"]
+        rules = restated["rule"]
+        why = restate_lib.WHY.get((rules["from"], rules["to"]), "")
+        note = (f"<p class=\"note\"><strong>Restated.</strong> Published under rule <code>{e(rules['from'])}"
+                f"</code>, this sheet counted {head['before']['differ']:,} of {head['rows']:,} listings "
+                f"({e(head['before']['share'])}) as differing from their listing. Judged again under "
+                f"<code>{e(rules['to'])}</code> on {e(restated['time'][:10])}, {head['after']['differ']:,} "
+                f"({e(head['after']['share'])}) do, and the figures below are those. {e(why)} "
+                f"<a href=\"{e(restated['file'])}\">The restatement and every row it changed</a>.</p>\n")
     if sheet_lib.market_of(body) == "mpp":
         detail = f"""<p>Of the {payable:,} payable challenges, {price.get('as_listed', 0) + price.get('below_listed', 0):,}
 asked no more than the catalog's price and {price.get('above_listed', 0):,} asked more;
 {price.get('not_listed', 0):,} are priced by the request (dynamic) and not judged on price;
 {price.get('varies', 0):,} varied between two asks and are not held against anyone. The catalog names no recipient,
 so the recipient each challenge names is recorded, not judged.</p>
+"""
+    elif "floating" in s:
+        floating = s.get("floating") or {}
+        detail = f"""<p>Price is judged in dollars (USDC). Of the {payable:,} payable offers,
+{price.get('as_listed', 0) + price.get('below_listed', 0):,} asked no more than their listed dollar price and
+{price.get('above_listed', 0):,} asked more; {price.get('listed_option_missing', 0):,} no longer offered the dollar
+option their listing names; {pay_to.get('different', 0):,} named a pay-to address other than the listed one;
+{price.get('input_priced', 0):,} quoted more only to an empty request and their listed price to their own example
+request (priced by input, not judged); {price.get('varies', 0) + pay_to.get('varies', 0):,} verdicts varied between
+two asks and are not held against anyone. In other tokens, whose dollar value moves, {floating.get('above_listed', 0):,}
+asked more than listed in the token's own units: reported, never judged. A difference from the listing can mean the
+listing is out of date. {s.get('fair_offer', 0):,} carried a Fair Offer block.</p>
 """
     else:
         detail = f"""<p>Of the {payable:,} payable offers, {price.get('as_listed', 0) + price.get('below_listed', 0):,} asked no more than
@@ -197,8 +289,8 @@ asks and are not held against anyone. A difference from the listing can mean the
     return f"""<h2>{e(name)}: sheet {e(body['id'])}</h2>
 <p>{e(who)}, asked without paying (twice when an answer differs from the listing) and judged by the published rule
 <code>{e(body['rule'])}</code>. {s.get("rows", 0):,} listings from {s.get("hosts", 0):,} sellers. What they answered:</p>
-<ul>{answers}</ul>
-{detail}"""
+{note}<ul>{answers}</ul>
+{detail}{changes}"""
 
 
 def write_pledge(site: Path, book: Book) -> Optional[Dict[str, Any]]:
@@ -416,12 +508,20 @@ def _charts(site: Path, sheets: List[Dict[str, Any]], newest: Dict[str, Dict[str
     """The charts (charts.py), from the book's counts and from each market's newest sheet, read only if its hash
     matches the book. A sheet that can't be read loses its row charts; a chart that fails is left out with a line on
     stderr naming only the error's kind, so a chart never stops the page."""
+    from agoranome_inspector.rules import RULES
+
     loaded = {}
     for market, entry in newest.items():
         try:
             loaded[market] = load_sheet(site, entry)
         except (OSError, ValueError, RuntimeError) as exc:
             print(f"charts: the {market} sheet's rows were not read ({type(exc).__name__})", file=sys.stderr)
+            continue
+        rule = entry["body"]["rule"]
+        if entry["body"].get("restated") and rule in RULES:     # drawn as restated, like the counts beside them
+            judge = RULES[rule]
+            loaded[market] = {**loaded[market], "rule": rule, "rows": [
+                {**r, "verdict": judge(r.get("listed") or [], r.get("seen"))} for r in loaded[market]["rows"]]}
     try:
         return charts.section(sheets, loaded)
     except Exception as exc:  # noqa: BLE001 - a chart is never worth the page
@@ -436,10 +536,12 @@ def write_index(site: Path, book: Book) -> None:
     if not sheets:
         return
     e = html.escape
+    sheets = [restated_view(entries, x) for x in sheets]
     newest: Dict[str, Dict[str, Any]] = {}
     for x in sheets:
         newest[sheet_lib.market_of(x["body"])] = x
-    sections = "".join(_market_section(x["body"]) for x in sorted(newest.values(), key=lambda x: -x["seq"]))
+    sections = "".join(_market_section(x["body"], _changes_line(entries, x["body"]))
+                       for x in sorted(newest.values(), key=lambda x: -x["seq"]))
     glance = _charts(site, sheets, newest)
     link_entries = entries_of("links", entries)
     if link_entries:
@@ -455,7 +557,9 @@ def write_index(site: Path, book: Book) -> None:
                  + _gates_section(entries))
     rows = "".join(
         f"<tr><td>{e(sheet_lib.market_of(x['body']))}</td><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
-        f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a></td>"
+        f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a>"
+        + (f" · <a href=\"{e(x['body']['restated']['file'])}\">restated under "
+           f"{e(x['body']['restated']['rule']['to'])}</a>" if x['body'].get('restated') else "") + "</td>"
         f"<td><code>{e(x['body']['root'] or '')}</code></td></tr>" for x in reversed(sheets))
     body = f"""<p class="eyebrow">Agoranome inspector</p>
 <h1>The open sheet</h1>

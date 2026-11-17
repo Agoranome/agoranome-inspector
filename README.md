@@ -10,15 +10,25 @@ they pay for, and we pledge 15% of what we earn to a public cause.
 This is phase 1 of the plan, "Prove": the sheet, the change log, the open book and its verifier. Nothing here is
 sold. The tools are free, and the published sheets are under CC BY 4.0.
 
-One book holds the sheets of several markets: x402 (rule `sheet-1`) and MPP, the Machine Payments Protocol (rule
-`mpp-1`). Skyfire is next.
+One book holds the sheets of several markets: x402 (rule `sheet-2`, and `sheet-1` before it) and MPP, the Machine
+Payments Protocol (rule `mpp-1`). Skyfire is next.
 
 ## Check a sheet in one command
 
 ```sh
 pip install "git+https://github.com/Agoranome/agoranome-inspector"
-agoranome-inspector verify <site URL or directory> --key=<the first key's kid>
+agoranome-inspector verify https://inspector.agoranome.com/ --key=7pG2bGERXACET2iKMCbgBBKsud-c-6gA-b0aoHVkgTg
 ```
+
+That is the key that signs the published book, printed here so that you need not take it from the site you are
+checking. Its kid is the RFC 7638 thumbprint of this public key (Ed25519, JWK):
+
+```json
+{"kty": "OKP", "crv": "Ed25519", "x": "TzGPmoBd9Earp5iJAQPloeNp7xO058lCCWSk8Nb7Exg"}
+```
+
+The book's first entry (seq 0, 11 Nov 2026) holds the same key. A hand-over to a new key is an entry signed by
+this one, so the pin stays the same for the life of the book.
 
 To try it now, on a demo site built from a small fake market (every host is under `example.*`):
 
@@ -37,6 +47,8 @@ The verifier trusts nothing it is told. It checks, in order:
 5. **The summary.** Counted again from the rows, it must match the sheet and the book.
 6. **The table.** The CSV is the one the book signed and is rebuilt byte for byte from the sheet.
 7. **The change log.** Rebuilt from this sheet and the one before, it must match.
+8. **Restatements.** Each sheet judged again under a newer rule (see below) is rebuilt from the sheet, and its
+   file, headline and counts must match the ones the book signed.
 
 `--recheck N` also asks N rows' endpoints again, unpaid, and reports how many still give the same verdict. That
 is a spot check of the inspector's own observations, not a pass or fail, because the market moves.
@@ -53,7 +65,43 @@ One row for each listing in Coinbase's x402 Bazaar index with 3 or more unique p
 what the listing states (`listed`), what the endpoint answered (`seen`) and the verdict. The verdict is a pure
 function of the other two, so anyone can judge a row again.
 
-### The rule, `sheet-1`
+### The rule, `sheet-2` (every new x402 sheet)
+
+Sheet-2 is `sheet-1` below with price judged in dollars. Sheet-1 compares listed and live amounts in each asset's
+own units. A seller who prices in dollars and quotes XRP at the day's rate is above its listing whenever the index
+is a few days old: on 16 Nov 2026, 229 of the 431 listings sheet-1 counted as differing did so only on an XRP or
+STX option, and asked exactly the listed USDC price. What sheet-2 changes:
+
+- **Dollar options.** USDC on Base, Base Sepolia, Ethereum, Polygon, Arbitrum, Optimism, Avalanche, World Chain,
+  Monad and Solana, by contract. The list is part of the rule; a token added later is a new rule.
+- **price** is judged on the listed dollar options only: `not_dollar` when the listing states none,
+  `listed_option_missing` when none of them is in the live offer, else as in sheet-1.
+- **floating** (a new column) is the same verdict from every other option. It is published so the sheet hides
+  nothing, and never held against the seller.
+- **pay_to** is still judged on every option: an address does not drift.
+- **Priced by input.** Some endpoints quote a ceiling to an empty request (stabledomains.net listed $4.99 and
+  asked an empty probe $1,000). When the first answer asks more in dollars and the offer gives an example input
+  in its discovery block (`extensions.bazaar.info.input`), the confirming ask sends that example, as a buyer agent
+  would (`seen.again.request` is `seller_example`; the example is sent, never published). If the example gets the
+  listed price, the row's price is `input_priced`: not an overcharge, and not judged.
+- **differs** marks each entry `dollar: true` or `false`, dollar options first. The table's USD columns read every
+  dollar option, and its listed columns show the listed option on the asked option's network and asset.
+
+The full text is the `method` of every sheet-2 sheet ([`rule2.py`](src/agoranome_inspector/rule2.py)).
+
+### Restatements
+
+A sheet published under one rule can be judged again under a newer one: `agoranome-inspector restate SITE SHEET
+--rule sheet-2`, or the "Restate a sheet" workflow, which is only ever started by hand. The restatement is a file
+beside the sheet (`restatements/<sheet>.<rule>.json`) holding the headline before and after, both summaries, every
+row whose verdict changed with both verdicts, and in words why the rule changed. Its book entry signs the file's
+hash. The sheet itself is never changed, still verifies under its own rule, and the page shows both figures.
+
+Under sheet-2, the 16 Nov 2026 sheet's 431 differing listings (8.1%) are 147 (2.8%), and the 11 Nov sheet's 519
+(9.1%) are 228 (4.0%). A change log between a sheet-1 and a sheet-2 sheet judges the earlier rows again under
+sheet-2 first, so a change of rule is never counted as a change in the market.
+
+### The rule, `sheet-1` (sheets of 11 and 16 Nov 2026)
 
 - **Who is on the sheet.** Every listing in the index with 3 or more unique payers in 30 days on the day of the
   run. The index is the list of where to look. Every verdict comes from the seller's own endpoint.

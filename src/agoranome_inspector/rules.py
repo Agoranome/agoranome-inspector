@@ -15,7 +15,11 @@
 """Every rule a sheet can be judged by, by name. A published rule is never changed or removed: a new rule gets a
 new name, so every sheet ever published can be judged again under its own rule."""
 
-from agoranome_inspector import rule, rule_mpp
+from agoranome_inspector import rule, rule2, rule_mpp
 
-RULES = {rule.RULE: rule.judge, rule_mpp.RULE: rule_mpp.judge}
-METHODS = {rule.RULE: rule.METHOD, rule_mpp.RULE: rule_mpp.METHOD}
+RULES = {rule.RULE: rule.judge, rule2.RULE: rule2.judge, rule_mpp.RULE: rule_mpp.judge}
+METHODS = {rule.RULE: rule.METHOD, rule2.RULE: rule2.METHOD, rule_mpp.RULE: rule_mpp.METHOD}
+
+# The rule a new x402 sheet is judged by. Sheet-1 judged price in each asset's own units; sheet-2 judges it on
+# dollar options only (rule2.py). Sheets published under sheet-1 keep it, and can be restated (restate.py).
+CURRENT = rule2.RULE
