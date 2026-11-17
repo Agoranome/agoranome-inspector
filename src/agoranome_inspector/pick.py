@@ -248,8 +248,11 @@ def table_row(market: str, row: Dict[str, Any], found_words: List[str]) -> Tuple
     }, "in"
 
 
-def table(sheet: Dict[str, Any], words_by_resource: Dict[str, List[str]]) -> Dict[str, Any]:
-    """The pick table of one sheet, from its rows and the words each listing had the same day."""
+def table(sheet: Dict[str, Any], words_by_resource: Dict[str, List[str]],
+          restated: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The pick table of one sheet, from its rows and the words each listing had the same day. A table built from a
+    sheet judged again under a newer rule (restate.judged) says so in `restated`: that rule and the restatement's
+    file."""
     from agoranome_inspector import sheet as sheet_lib
 
     market = sheet_lib.market_of(sheet)
@@ -261,23 +264,30 @@ def table(sheet: Dict[str, Any], words_by_resource: Dict[str, List[str]]) -> Dic
         else:
             rows.append(found)
     rows.sort(key=lambda r: r["resource"])
-    return {"kind": KIND, "format": FORMAT, "rule": RULE, "market": market, "sheet": sheet["id"],
-            "method": METHOD, "left_out": dict(sorted(left_out.items())), "rows": rows}
+    out = {"kind": KIND, "format": FORMAT, "rule": RULE, "market": market, "sheet": sheet["id"],
+           "method": METHOD, "left_out": dict(sorted(left_out.items())), "rows": rows}
+    if restated is not None:
+        out["restated"] = {"rule": restated["rule"], "file": restated["file"]}
+    return out
 
 
 def check_table(found: Dict[str, Any], sheet: Dict[str, Any]) -> List[str]:
-    """Recompute a pick table from its sheet; the words can only be checked for form."""
+    """Recompute a pick table from its sheet; the words can only be checked for form. A restated table is checked
+    against the sheet judged again under the rule it names (restate.judged), which the caller passes."""
     if found.get("rule") != RULE:
         return [f"unknown pick rule {found.get('rule')!r}"]
     if found.get("sheet") != sheet.get("id"):
         return [f"the pick table names sheet {found.get('sheet')}, not {sheet.get('id')}"]
+    restated = found.get("restated")
+    if restated is not None and (not isinstance(restated, dict) or restated.get("rule") != sheet.get("rule")):
+        return ["the restated pick table was not checked against its sheet judged again under its rule"]
     by_resource = {r.get("resource"): r for r in found.get("rows") or []}
     if len(by_resource) != len(found.get("rows") or []):
         return ["the pick table names a resource twice"]
     bad = [r for r, row in by_resource.items() if not words_ok(row.get("words"))]
     if bad:
         return [f"{len(bad)} row(s) of the pick table carry words not in the published form"]
-    again = table(sheet, {r: row["words"] for r, row in by_resource.items()})
+    again = table(sheet, {r: row["words"] for r, row in by_resource.items()}, restated)
     if {k: v for k, v in again.items() if k != "method"} != {k: v for k, v in found.items() if k != "method"}:
         return ["the pick table does not follow from its sheet"]
     return []

@@ -48,7 +48,8 @@ The verifier trusts nothing it is told. It checks, in order:
 6. **The table.** The CSV is the one the book signed and is rebuilt byte for byte from the sheet.
 7. **The change log.** Rebuilt from this sheet and the one before, it must match.
 8. **Restatements.** Each sheet judged again under a newer rule (see below) is rebuilt from the sheet, and its
-   file, headline and counts must match the ones the book signed.
+   file, headline and counts must match the ones the book signed. A pick table built from a restatement is
+   recomputed from the sheet judged again the same way.
 
 `--recheck N` also asks N rows' endpoints again, unpaid, and reports how many still give the same verdict. That
 is a spot check of the inspector's own observations, not a pass or fail, because the market moves.
@@ -97,8 +98,17 @@ beside the sheet (`restatements/<sheet>.<rule>.json`) holding the headline befor
 row whose verdict changed with both verdicts, and in words why the rule changed. Its book entry signs the file's
 hash. The sheet itself is never changed, still verifies under its own rule, and the page shows both figures.
 
+When the restated sheet is its market's newest and has a pick table, the same command builds the pick table
+again from the restated verdicts, with the words of the first table, and signs it beside it
+(`picks/<sheet>.<rule>.json`, a `pick` entry that names the restatement). The fair pick ranks "asked what it lists"
+first and reads that from the verdicts, so a table left on the older rule would keep ranking on it. The table's
+rule is still `pick-1`; it says which verdicts it read in `restated`. Every reader ranks by the market's newest pick
+entry, so an older sheet's table is never restated, and the workflow then builds the best-buy file again. A sheet
+restated already is not restated twice, but its pick table still is, once.
+
 Under sheet-2, the 16 Nov 2026 sheet's 431 differing listings (8.1%) are 147 (2.8%), and the 11 Nov sheet's 519
-(9.1%) are 228 (4.0%). A change log between a sheet-1 and a sheet-2 sheet judges the earlier rows again under
+(9.1%) are 228 (4.0%). In the 16 Nov pick table, 284 of the 431 listings ranked last for asking more than they list
+move up to "asked what it lists" under sheet-2. A change log between a sheet-1 and a sheet-2 sheet judges the earlier rows again under
 sheet-2 first, so a change of rule is never counted as a change in the market.
 
 ### The rule, `sheet-1` (sheets of 11 and 16 Nov 2026)

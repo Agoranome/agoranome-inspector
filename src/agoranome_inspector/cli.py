@@ -383,12 +383,24 @@ def cmd_note(args) -> int:
 
 
 def cmd_restate(args) -> int:
-    from agoranome_inspector.publish import restate
+    """Restate a sheet, then its pick table when it is its market's newest (publish.restate_pick). A sheet restated
+    already under the rule is not restated again; its pick table still is, when it was not yet."""
+    from agoranome_inspector.book import Book, entries_of
+    from agoranome_inspector.publish import BOOK, restate, restate_pick
     from agoranome_inspector.rules import CURRENT
 
-    entry = restate(args.site, args.sheet, args.rule or CURRENT, _key(args))
+    rule = args.rule or CURRENT
+    signer = _key(args)
+    entry = next((e for e in reversed(entries_of("restatement", Book(str(Path(args.site) / BOOK)).entries()))
+                  if e["body"]["sheet"]["id"] == args.sheet and e["body"]["rule"]["to"] == rule), None)
+    already = entry is not None
+    if entry is None:
+        entry = restate(args.site, args.sheet, rule, signer)
+    pick = restate_pick(args.site, args.sheet, rule, signer)
     print(json.dumps({"seq": entry["seq"], "hash": entry["hash"], "headline": entry["body"]["headline"],
-                      "changed": entry["body"]["changed"]}))
+                      "changed": entry["body"]["changed"], "already": already,
+                      "pick": {"seq": pick["seq"], "file": pick["body"]["file"], "rows": pick["body"]["rows"]}
+                      if pick else None}))
     return 0
 
 

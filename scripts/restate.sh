@@ -28,6 +28,8 @@ for sheet in ${RESTATE_SHEETS:-}; do
   fi
   "$INSPECTOR" restate "$SITE" "$sheet" --rule "$RESTATE_RULE"
 done
+# A restated pick table changes the best-buy file built from it: build it again (it says "unchanged" otherwise).
+"$INSPECTOR" best-buy "$SITE"
 
 "$INSPECTOR" verify "$SITE" --all ${INSPECTOR_FIRST_KID:+"--key=$INSPECTOR_FIRST_KID"}
 (

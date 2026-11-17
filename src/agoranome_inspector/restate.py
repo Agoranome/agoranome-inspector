@@ -19,6 +19,11 @@ file computed from that sheet alone (each row's listing and answer, judged again
 holding the sheet rebuilds it byte for byte, and the verifier does. It holds the counts before and after, the
 headline (how many listings differ from their listing), every row whose judged verdict (answer, price, pay-to or
 match) changed with both verdicts, and in plain words why the rule changed.
+
+When the restated sheet is its market's newest and has a pick table, the pick table is built again from the
+restated verdicts and signed beside the original (picks/<id>.<rule>.json, a `pick` entry naming the restatement),
+because the pick ranks "asked what it lists" first and reads that from the verdicts. Its rule is still the pick's
+own (pick-1); only the verdicts it reads are the newer rule's. The original table stays, and still verifies.
 """
 
 from typing import Any, Dict, List
@@ -48,6 +53,14 @@ WHY = {
 }
 
 
+def judged(sheet: Dict[str, Any], rule: str) -> Dict[str, Any]:
+    """The sheet with every row's verdict judged again under `rule` from the row's listing and answer, and the rule
+    named: what a restatement states, row by row. The sheet itself is not changed."""
+    judge = RULES[rule]
+    return {**sheet, "rule": rule,
+            "rows": [{**r, "verdict": judge(r.get("listed") or [], r.get("seen"))} for r in sheet["rows"]]}
+
+
 def flagged(summary: Dict[str, Any]) -> int:
     """The headline: listings whose live offer differs from their listing (matches_listing false)."""
     return int((summary.get("matches_listing") or {}).get("false", 0))
@@ -64,9 +77,8 @@ def build(sheet: Dict[str, Any], rule: str) -> Dict[str, Any]:
         raise ValueError(f"unknown rule {rule!r}")
     if (old_rule, rule) not in WHY:
         raise ValueError(f"no restatement from {old_rule} to {rule} is written")
-    judge = RULES[rule]
     rows = sheet["rows"]
-    after_rows: List[Dict[str, Any]] = [{**r, "verdict": judge(r.get("listed") or [], r.get("seen"))} for r in rows]
+    after_rows: List[Dict[str, Any]] = judged(sheet, rule)["rows"]
     changed = [{"resource": r["resource"], "host": r["host"], "leaf": leaf_hash(r), "before": r["verdict"],
                 "after": a["verdict"]}
                for r, a in zip(rows, after_rows)
@@ -106,6 +118,11 @@ def to_bytes(restatement: Dict[str, Any]) -> bytes:
 
 def file_for(sheet_id: str, rule: str) -> str:
     return f"restatements/{sheet_id}.{rule}.json"
+
+
+def pick_file_for(sheet_id: str, rule: str) -> str:
+    """The restated pick table, beside the sheet's own (picks/<id>.json)."""
+    return f"picks/{sheet_id}.{rule}.json"
 
 
 def check(data: bytes, sheet: Dict[str, Any], body: Dict[str, Any]) -> List[str]:

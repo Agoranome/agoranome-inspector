@@ -175,6 +175,47 @@ def restate(site_dir: str, sheet_id: str, rule: str, signer: Signer, time: Optio
     return entry
 
 
+def restate_pick(site_dir: str, sheet_id: str, rule: str, signer: Signer,
+                 time: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """The pick table of a restated sheet, built again from the restated verdicts with the words of the sheet's own
+    table, and signed beside it (picks/<id>.<rule>.json). Only for its market's newest sheet: every reader ranks by
+    the market's newest pick entry, so a restated table for an older sheet would replace a newer one. None when
+    there is nothing to do: the sheet has no pick table, is not its market's newest, or its table is restated
+    already."""
+    site = Path(site_dir)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    restatement = next((e for e in reversed(entries_of("restatement", entries))
+                        if e["body"]["sheet"]["id"] == sheet_id and e["body"]["rule"]["to"] == rule), None)
+    if restatement is None:
+        raise RuntimeError(f"sheet {sheet_id} is not restated under {rule}")
+    picks = [e for e in entries_of("pick", entries) if (e["body"].get("sheet") or {}).get("id") == sheet_id]
+    own = next((e for e in picks if not e["body"].get("restatement")), None)
+    if own is None or any((e["body"].get("restatement") or {}).get("rule") == rule for e in picks):
+        return None
+    sheet_entry = next(e for e in entries_of("sheet", entries) if e["body"]["id"] == sheet_id)
+    newest = [e for e in entries_of("sheet", entries)
+              if sheet_lib.market_of(e["body"]) == sheet_lib.market_of(sheet_entry["body"])][-1]
+    if newest["seq"] != sheet_entry["seq"]:
+        return None
+    data = (site / own["body"]["file"]).read_bytes()
+    if sha256_hex(data) != own["body"]["sha256"]:
+        raise RuntimeError(f"{own['body']['file']} does not match the book")
+    words = {r["resource"]: r["words"] for r in json.loads(data)["rows"]}
+    again = restate_lib.judged(load_sheet(site, sheet_entry), rule)
+    found = pick_lib.table(again, words, {"rule": rule, "file": restatement["body"]["file"]})
+    pick_file = restate_lib.pick_file_for(sheet_id, rule)
+    pick_sha = _write(site / pick_file, canonical(found) + b"\n")
+    entry = book.append(signer, "pick", {
+        "rule": found["rule"], "market": found["market"], "sheet": {"seq": sheet_entry["seq"], "id": sheet_id},
+        "file": pick_file, "sha256": pick_sha, "rows": len(found["rows"]), "left_out": found["left_out"],
+        "restatement": {"seq": restatement["seq"], "rule": rule, "replaces": own["body"]["file"]},
+    }, time=time)
+    write_head(site, book)
+    write_index(site, book)
+    return entry
+
+
 def restated_view(entries: List[Dict[str, Any]], sheet_entry: Dict[str, Any]) -> Dict[str, Any]:
     """A sheet entry as the page shows it: with the counts of its newest restatement, when it has one (the sheet
     and its own entry are unchanged; the page says it is restated and links both)."""
@@ -381,6 +422,9 @@ def _pick_section(entries) -> str:
     counts = ", ".join(f"{x['body']['rows']:,} {e(MARKET_WORDS.get(m, (m,))[0])} endpoints"
                        for m, x in sorted(newest.items()))
     files = " · ".join(f"<a href=\"{e(x['body']['file'])}\">{e(x['body']['sheet']['id'])}</a>"
+                       + (f" (its verdicts restated under <code>{e(x['body']['restatement']['rule'])}</code>; "
+                          f"<a href=\"{e(x['body']['restatement']['replaces'])}\">the table first published</a>)"
+                          if x["body"].get("restatement") else "")
                        for _, x in sorted(newest.items()))
     return (f"<h2>The fair pick</h2><p>For a job and a budget, the endpoints that fit, ranked by the published rule "
             f"<code>{e(pick_lib.RULE)}</code>: those that asked what they list first, then those that promise to "
