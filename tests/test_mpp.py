@@ -259,3 +259,37 @@ def test_a_price_per_record_is_not_compared_with_a_price_per_request():
     assert one["amount"] == "10000" and one["unit"] == "request"
     seen = {"status": 402, "options": offers([challenge("4000")])}
     assert judge([rows_listed], seen)["price"] == "not_listed"
+
+
+def test_a_catalog_read_survives_a_connection_reset():
+    """16 Nov 2026: the MPP half lost its week to one reset during the catalog's TLS handshake."""
+    tries = []
+
+    def flaky(request):
+        tries.append(1)
+        if len(tries) == 1:
+            raise httpx.ConnectError("[Errno 104] Connection reset by peer", request=request)
+        if len(tries) == 2:
+            return httpx.Response(503)
+        return httpx.Response(200, json={"version": 1, "services": []})
+
+    pauses = []
+    reader = mpp.CatalogReader(url="https://catalog.example/api/services", sleep=pauses.append,
+                               client=httpx.Client(transport=httpx.MockTransport(flaky)))
+    found = reader.read()
+    assert found["url"] == "https://catalog.example/api/services" and len(tries) == 3
+    assert pauses == [2.0, 4.0]
+
+
+def test_a_catalog_that_stays_down_still_fails_the_run():
+    def down(request):
+        raise httpx.ConnectError("reset", request=request)
+
+    reader = mpp.CatalogReader(url="https://catalog.example/api/services", sleep=lambda s: None,
+                               client=httpx.Client(transport=httpx.MockTransport(down)))
+    try:
+        reader.read()
+    except httpx.ConnectError:
+        pass
+    else:
+        raise AssertionError("a catalog that never answers must fail the run")

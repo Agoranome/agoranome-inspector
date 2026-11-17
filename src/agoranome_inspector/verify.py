@@ -23,7 +23,9 @@ It checks, in order:
   4. the verdicts: every row judged again under the sheet's own rule gives the published verdict;
   5. the summary: counted again from the rows, it matches the sheet and the book;
   6. the table: the CSV is the one the book signed and is rebuilt byte for byte from the sheet;
-  7. the change log, when there is one: rebuilt from this sheet and the one before, it matches.
+  7. the change log, when there is one: rebuilt from this sheet and the one before, it matches;
+  8. each restatement in the book: the sheet it names judged again under the newer rule gives the same file,
+     headline and counts (restate.py).
 
 With --recheck N it also asks N rows' endpoints again, unpaid, and says how many still give the same verdict.
 That is a spot check of the inspector's own observations, not a pass or fail: the market moves.
@@ -46,7 +48,8 @@ from agoranome_inspector.merkle import merkle_proof, verify_proof
 from agoranome_inspector.rules import RULES
 
 MAX_BYTES = 256 * 1024 * 1024
-SAFE_PATH = re.compile(r"^(sheets|changes|links|picks|signs|best-buy|disputes)/[A-Za-z0-9._-]+\.(json|csv)$")
+SAFE_PATH = re.compile(
+    r"^(sheets|changes|links|picks|signs|best-buy|disputes|restatements)/[A-Za-z0-9._-]+\.(json|csv)$")
 
 
 def http_get(url: str, timeout: float = 60.0) -> bytes:
@@ -174,6 +177,39 @@ def check_sheet(read: Callable[[str], bytes], entries: List[Dict[str, Any]], ent
             continue
         check_changes(read, entries, log_entry, sheet, report)
     return sheet
+
+
+def check_restatement(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+                      report: Report) -> None:
+    """A restatement is rebuilt from the sheet it names, which must be in the book before it and verify."""
+    from agoranome_inspector import restate as restate_lib
+
+    body = entry["body"]
+    ref = body.get("sheet") or {}
+    rule = body.get("rule") or {}
+    label = f"restatement of {ref.get('id')} under {rule.get('to')}"
+    sheet_entry = next((e for e in entries if e["seq"] == ref.get("seq")), None)
+    if sheet_entry is None or sheet_entry["kind"] != "sheet" or sheet_entry["body"].get("id") != ref.get("id") \
+            or sheet_entry["seq"] > entry["seq"] or sheet_entry["body"].get("rule") != rule.get("from"):
+        report.add(label, False, f"names sheet {ref.get('id')} at entry {ref.get('seq')}, which the book lacks")
+        return
+    quiet = Report()
+    sheet = _load_sheet(read, sheet_entry, quiet)
+    if sheet is None:
+        report.add(label, False, f"its sheet could not be read ({quiet.checks[-1]['detail']})")
+        return
+    try:
+        data = read(_safe(body["file"]))
+    except Exception as e:
+        report.add(label, False, f"could not read {body.get('file')} ({type(e).__name__})")
+        return
+    problems = ([] if sha256_hex(data) == body.get("sha256") else ["the file is not the one the book signed"]) \
+        + restate_lib.check(data, sheet, body)
+    head = body.get("headline") or {}
+    report.add(label, not problems,
+               (f"rebuilt from the sheet: {head.get('before', {}).get('differ')} differ under {rule.get('from')}, "
+                f"{head.get('after', {}).get('differ')} under {rule.get('to')}") if not problems
+               else "; ".join(problems))
 
 
 def check_changes(read: Callable[[str], bytes], entries: List[Dict[str, Any]], log_entry: Dict[str, Any],
@@ -551,6 +587,8 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
     buys = entries_of("bestbuy", entries)
     for entry in (buys if every else buys[-1:]):
         check_bestbuy(read, entries, entry, report)
+    for entry in entries_of("restatement", entries):
+        check_restatement(read, entries, entry, report)
     reported = entries_of("reports", entries)
     for entry in (reported if every else reported[-1:]):
         check_reports(read, entries, entry, report, chain_rpc, post)

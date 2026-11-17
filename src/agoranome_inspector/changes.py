@@ -25,9 +25,15 @@ Kinds of change, for a listing on both sheets:
   verdict_changed              the price or pay-to verdict changed (for example as_listed to above_listed)
 and for a listing on one sheet only:
   joined, left                 it reached real demand (or was first asked), or it dropped off the sheet
+
+When the two sheets were judged by different rules (sheet-1, then sheet-2), the earlier sheet's rows are judged
+again under the later sheet's rule before they are compared, so a change of rule is never counted as a change in
+the market; the log then says so under "rule".
 """
 
 from typing import Any, Dict, List, Optional
+
+from agoranome_inspector.rules import RULES
 
 KIND = "agoranome.x402-changes"
 FORMAT = 1
@@ -50,7 +56,17 @@ def _change(resource: str, host: str, kind: str, before: Any, after: Any) -> Dic
     return {"resource": resource, "host": host, "kind": kind, "before": before, "after": after}
 
 
+def _judged_again(sheet: Dict[str, Any], rule: str) -> Dict[str, Any]:
+    judge = RULES[rule]
+    rows = [{**r, "verdict": judge(r.get("listed") or [], r.get("seen"))} for r in sheet["rows"]]
+    return {**sheet, "rows": rows}
+
+
 def diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
+    rule_from, rule_to = before.get("rule"), after.get("rule")
+    rejudged = bool(rule_from and rule_to and rule_from != rule_to and rule_to in RULES)
+    if rejudged:
+        before = _judged_again(before, rule_to)
     old, new = _by_resource(before), _by_resource(after)
     net, asset, pay = KEYS.get(after.get("market") or "x402", KEYS["x402"])
     found: List[Dict[str, Any]] = []
@@ -79,14 +95,14 @@ def diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
                 found.append(_change(resource, host, "price_raised", aa["amount"], ab["amount"]))
             if aa.get(pay) != ab.get(pay):
                 found.append(_change(resource, host, "pay_to_changed", aa.get(pay), ab.get(pay)))
-        for key in ("price", "pay_to"):
+        for key in ("price", "pay_to"):     # floating is reported, never judged, so not a change
             if va.get(key) and vb.get(key) and va[key] != vb[key]:
                 found.append(_change(resource, host, "verdict_changed",
                                      {key: va[key]}, {key: vb[key]}))
     counts: Dict[str, int] = {}
     for change in found:
         counts[change["kind"]] = counts.get(change["kind"], 0) + 1
-    return {
+    log = {
         "kind": KIND,
         "format": FORMAT,
         "market": after.get("market") or "x402",
@@ -95,3 +111,6 @@ def diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
         "changes": found,
         "counts": dict(sorted(counts.items())),
     }
+    if rejudged:
+        log["rule"] = {"from": rule_from, "to": rule_to, "before_judged_again": True}
+    return log

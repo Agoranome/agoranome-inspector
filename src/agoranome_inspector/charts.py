@@ -128,6 +128,8 @@ def markups(rows: Sequence[Dict[str, Any]]) -> List[Decimal]:
             continue
         ratios = []
         for d in verdict.get("differs") or []:
+            if d.get("dollar") is False:      # sheet-2 on: a floating option's price is reported, not judged
+                continue
             try:
                 asked, listed = Decimal(str(d.get("asked_amount"))), Decimal(str(d.get("listed_amount")))
             except (ArithmeticError, ValueError):

@@ -123,7 +123,9 @@ def measured_match(sheet_body: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     s = sheet_body.get("summary") or {}
     payable = int((s.get("answer") or {}).get("payable", 0))
     price, pay_to = s.get("price") or {}, s.get("pay_to") or {}
-    judged = payable - int(price.get("not_listed", 0)) - int(price.get("varies", 0))
+    # Not judged on price: nothing listed, a verdict that varied, and from sheet-2 on no dollar option listed or a
+    # quote priced by its input (both counts are absent, so 0, on older sheets).
+    judged = payable - sum(int(price.get(k, 0)) for k in ("not_listed", "varies", "not_dollar", "input_priced"))
     held = int(price.get("above_listed", 0)) + int(price.get("listed_option_missing", 0)) \
         + int(pay_to.get("different", 0))
     if judged <= 0:

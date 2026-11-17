@@ -1,0 +1,46 @@
+name: Restate a sheet
+
+# By hand from the Actions tab only: judge sheets already published again under a newer rule, and sign each
+# restatement into the open book beside its sheet (restate.py). The sheets themselves are never changed and still
+# verify under their own rule. The site is verified whole before anything is pushed. Nothing runs until the
+# INSPECTOR_SIGNING_KEY secret is set.
+#
+# Publishing a restatement is a public statement, so this never runs on a schedule or on a push.
+on:
+  workflow_dispatch:
+    inputs:
+      sheets:
+        description: "Sheet ids, separated by spaces"
+        type: string
+        default: "x402-2026-11-11 x402-2026-11-16"
+        required: true
+      rule:
+        description: "The rule to judge them under"
+        type: string
+        default: "sheet-2"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-sheet      # one writer of the book at a time
+  cancel-in-progress: false
+
+jobs:
+  restate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ".[eth]"
+      - name: Restate, verify and publish
+        env:
+          INSPECTOR_SIGNING_KEY: ${{ secrets.INSPECTOR_SIGNING_KEY }}
+          INSPECTOR_FIRST_KID: ${{ vars.INSPECTOR_FIRST_KID }}
+          RESTATE_SHEETS: ${{ github.event.inputs.sheets }}
+          RESTATE_RULE: ${{ github.event.inputs.rule }}
+        run: bash scripts/restate.sh

@@ -36,7 +36,7 @@ def test_a_record_carries_every_week_and_checks_from_the_file_alone(tmp_path, mo
     other["weeks"][0]["rows"][0]["row"]["host"] = "pricey.example"
     assert "another host" in record.check(other)[0]
     forged = json.loads(out.read_text())
-    forged["weeks"][1]["entry"]["body"]["root"] = forged["weeks"][0]["entry"]["body"]["root"]
+    forged["weeks"][1]["entry"]["body"]["root"] = "0x" + "11" * 32     # (both weeks' roots can be equal)
     assert "hash does not match" in record.check(forged)[0]
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps(changed))

@@ -98,8 +98,33 @@ def is_repeat_use(listing: Dict[str, Any]) -> bool:
     return has_real_demand(listing) and listing["calls_30d"] >= 2 * listing["payers_30d"]
 
 
+RETRY_TRIES = 5
+
+
+def get_with_backoff(client: httpx.Client, url: str, *, params: Optional[Dict[str, Any]] = None,
+                     sleep: Callable[[float], None] = time.sleep, tries: int = RETRY_TRIES,
+                     delay: float = 2.0) -> httpx.Response:
+    """A GET of a list the run reads (the index, a catalog), asked again with a doubling pause on 429, on 5xx and
+    on a connection that failed (reset, refused, timed out): one bad moment of the list's host must not lose a
+    week's sheet. The last failure is raised."""
+    for attempt in range(tries):
+        try:
+            resp = client.get(url, params=params)
+        except httpx.TransportError:
+            if attempt == tries - 1:
+                raise
+        else:
+            if resp.status_code != 429 and resp.status_code < 500:
+                return resp
+            if attempt == tries - 1:
+                resp.raise_for_status()
+        sleep(delay)
+        delay *= 2
+    raise RuntimeError("unreachable")
+
+
 class IndexReader:
-    """Polite paging through the index, with backoff on 429 and 5xx."""
+    """Polite paging through the index, with backoff on 429, 5xx and failed connections."""
 
     def __init__(self, url: str = INDEX_URL, client: Optional[httpx.Client] = None, page_size: int = 100,
                  max_pages: int = 2000, pause: float = 0.25, sleep: Callable[[float], None] = time.sleep):
@@ -112,18 +137,9 @@ class IndexReader:
         self.sleep = sleep
 
     def _get(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        delay = 2.0
-        for attempt in range(5):
-            resp = self.client.get(self.url, params=params)
-            if resp.status_code == 429 or resp.status_code >= 500:
-                if attempt == 4:
-                    resp.raise_for_status()
-                self.sleep(delay)
-                delay *= 2
-                continue
-            resp.raise_for_status()
-            return resp.json()
-        raise RuntimeError("unreachable")
+        resp = get_with_backoff(self.client, self.url, params=params, sleep=self.sleep)
+        resp.raise_for_status()
+        return resp.json()
 
     def read(self) -> Dict[str, Any]:
         """Every http listing in the index, normalized, with the digest of the raw pages."""

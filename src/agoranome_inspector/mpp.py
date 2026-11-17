@@ -418,15 +418,21 @@ def listings(catalog: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class CatalogReader:
+    """The catalog, read with backoff on 429, 5xx and a failed connection (the 16 Nov 2026 run lost its MPP sheet
+    to one connection reset)."""
+
     def __init__(self, url: str = CATALOG_URL, client: Optional[httpx.Client] = None,
-                 max_bytes: int = 20_000_000):
+                 max_bytes: int = 20_000_000, sleep: Callable[[float], None] = time.sleep):
         self.url = url
         self.client = client or httpx.Client(timeout=30.0, follow_redirects=True, headers={
             "Accept": "application/json", "User-Agent": "Agoranome-inspector/0.1 (catalog read)"})
         self.max_bytes = max_bytes
+        self.sleep = sleep
 
     def read(self) -> Dict[str, Any]:
-        resp = self.client.get(self.url)
+        from agoranome_inspector.bazaar import get_with_backoff
+
+        resp = get_with_backoff(self.client, self.url, sleep=self.sleep)
         resp.raise_for_status()
         if len(resp.content) > self.max_bytes:
             raise RuntimeError(f"the catalog is larger than {self.max_bytes} bytes")
