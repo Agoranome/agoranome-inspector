@@ -211,7 +211,8 @@ never a verdict: no row's verdict changes because of it. The verifier rebuilds t
 ## The fair pick
 
 For a job in plain words and the most a buyer will pay for one request, the endpoints that fit, in an order no
-seller can pay for. The rule is `pick-1` (`src/agoranome_inspector/pick.py`):
+seller can pay for. The public rule is `pick-2` (since 18 Nov 2026), below its first rule `pick-1`; both read the
+same signed tables (`src/agoranome_inspector/pick.py`). `pick-1`:
 
 1. **In the running:** the row gave an offer an agent can pay on the newest sheet of its market, with a price per
    request in US dollars (USDC on a main network for x402; for MPP a charge in USDC, pathUSD, USDT0, OUSD or by
@@ -229,13 +230,26 @@ words kept. Stuffing a description with a word buys little: it only has to clear
 order inside the running is honesty, delivery and price. The words are published sorted, so a seller's sentences
 are never republished and no instruction written in a listing reaches a buying agent through the pick.
 
+`pick-2` reads the same tables and changes four things, which every `pick-2` answer states in its `rule_text`:
+
+- **Each word once.** A listing's words are scored by BM25 over its distinct words, so a word said five times
+  counts as once.
+- **A tighter running:** a match at least three quarters as good as the best, instead of half.
+- **Fit before price.** Inside honesty and delivery, the closer fit (the score as a share of the best, rounded down
+  to tenths) ranks ahead of the lower price, so a cheap listing stuffed with the words of many jobs no longer wins
+  each of them.
+- **Two places a seller.** One seller takes at most two places; the rest are counted as `more_from_seller`. Hosts are
+  one seller when they share a pay-to that at most 5 hosts list, or a registrable domain (`sellers.py`), the same
+  seller rule the Agoranome Lab uses. Its free and paid pick rank by `pick-2`.
+
 With each sheet, the weekly run writes `picks/<id>.json`, one row for each listing in the running with the fields
 the order uses and its words, and a `pick` entry in the book with its hash. The verifier recomputes every field
 but the words from the sheet, and checks the words' form. Anyone gets the same order:
 
 ```bash
 agoranome-inspector pick https://inspector.agoranome.com/ "weather forecast for a city" --budget 0.01
-agoranome-inspector mcp      # the same as two MCP tools on stdio: fair_pick and seller_row
+agoranome-inspector pick https://inspector.agoranome.com/ "weather forecast for a city" --rule pick-1   # the first rule
+agoranome-inspector mcp      # the same as two MCP tools on stdio: fair_pick (rule pick-2 or pick-1) and seller_row
 ```
 
 `seller_row` answers one endpoint's row on the newest sheet with its Merkle proof against the signed root. Both

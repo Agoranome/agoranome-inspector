@@ -18,7 +18,7 @@
 
 Two tools, both free and read-only, both answered from the published site after the open book is checked:
 
-  fair_pick   endpoints for a job and a budget, ranked by the published rule pick-1 (pick.py)
+  fair_pick   endpoints for a job and a budget, ranked by the published rule pick-2, or pick-1 (pick.py)
   seller_row  one endpoint's row on the newest sheet, with its Merkle proof against the root the book signed
 
 Messages are JSON-RPC 2.0, one per line (the MCP stdio transport). Nothing a seller wrote reaches the answer as a
@@ -50,10 +50,10 @@ TOOLS: List[Dict[str, Any]] = [
         "name": "fair_pick",
         "title": "Fair pick of paid endpoints",
         "description": (
-            "Endpoints that fit a job, ranked by Agoranome's published rule pick-1: only endpoints that gave a "
-            "payable offer on this week's sheet and whose words match the job; then those that asked what they "
-            "list first, then those that promise to settle only on delivery, then the lower price. No seller can "
-            "pay for a place. Free."),
+            "Endpoints that fit a job, ranked by Agoranome's published rule pick-2: only endpoints that gave a "
+            "payable offer on this week's sheet and whose words match the job well; then those that asked what they "
+            "list first, then those that promise to settle only on delivery, then the closer fit, then the lower "
+            "price, with at most two places for one seller. No seller can pay for a place. Free."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -63,6 +63,8 @@ TOOLS: List[Dict[str, Any]] = [
                                "description": "The most to pay for one request, in US dollars (e.g. 0.01)."},
                 "market": {"type": "string", "enum": ["x402", "mpp"], "description": "One market only."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": pick_lib.MAX_LIMIT, "default": pick_lib.LIMIT},
+                "rule": {"type": "string", "enum": list(pick_lib.RULES), "default": pick_lib.RULE2,
+                         "description": "pick-2, the public rule, or pick-1, its first."},
             },
             "required": ["job"],
             "additionalProperties": False,
@@ -119,8 +121,9 @@ class Inspector:
         return self._tables
 
     def fair_pick(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        return pick_lib.rank(self.tables(), args.get("job") or "", args.get("budget_usd"),
-                             market=args.get("market"), limit=args.get("limit") or pick_lib.LIMIT)
+        return pick_lib.rank_by(args.get("rule") or pick_lib.RULE2, self.tables(), args.get("job") or "",
+                                args.get("budget_usd"), market=args.get("market"),
+                                limit=args.get("limit") or pick_lib.LIMIT)
 
     def seller_row(self, args: Dict[str, Any]) -> Dict[str, Any]:
         from agoranome_inspector.picking import RAW, SITE

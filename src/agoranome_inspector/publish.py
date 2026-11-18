@@ -427,9 +427,11 @@ def _pick_section(entries) -> str:
                           if x["body"].get("restatement") else "")
                        for _, x in sorted(newest.items()))
     return (f"<h2>The fair pick</h2><p>For a job and a budget, the endpoints that fit, ranked by the published rule "
-            f"<code>{e(pick_lib.RULE)}</code>: those that asked what they list first, then those that promise to "
-            f"settle only on delivery, then the lower price. No seller can pay for a place. In the running this "
-            f"week: {counts}. The tables it ranks: {files}. Anyone gets the same order:</p>"
+            f"<code>{e(pick_lib.RULE2)}</code>: those that asked what they list first, then those that promise to "
+            f"settle only on delivery, then the closer fit, then the lower price, with at most two places for one "
+            f"seller. No seller can pay for a place. Its first rule, <code>{e(pick_lib.RULE)}</code>, put price "
+            f"before fit and still answers with <code>--rule {e(pick_lib.RULE)}</code>; both read the same tables. "
+            f"In the running this week: {counts}. The tables it ranks: {files}. Anyone gets the same order:</p>"
             f"<pre>agoranome-inspector pick &lt;this site's URL&gt; \"weather forecast for a city\" --budget 0.01\n"
             f"agoranome-inspector mcp      # the same as MCP tools, fair_pick and seller_row</pre>\n")
 

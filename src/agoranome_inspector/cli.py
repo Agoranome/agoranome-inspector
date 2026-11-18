@@ -19,7 +19,7 @@ For anyone:
   proof SITE --resource URL [--id ID]
   verify-receipt SITE PROOF            a receipt's proof from the lab's ledger (URL or file)
 
-  pick SITE JOB [--budget USD] [--market M]   the fair pick: endpoints for a job, by the published rule pick-1
+  pick SITE JOB [--budget USD] [--market M] [--rule R]   the fair pick: endpoints for a job, by pick-2 (or pick-1)
   mcp [SITE]                           the fair pick and the sheet's rows as MCP tools (stdio)
 
 For the inspector's operator:
@@ -168,11 +168,11 @@ def cmd_check_delivery(args) -> int:
 
 def cmd_pick(args) -> int:
     from agoranome_inspector.picking import load_tables, describe
-    from agoranome_inspector.pick import rank
+    from agoranome_inspector.pick import rank_by
 
     try:
         tables = load_tables(args.site, pinned_kid=args.key)
-        found = rank(tables, args.job, args.budget, market=args.market, limit=args.limit)
+        found = rank_by(args.rule, tables, args.job, args.budget, market=args.market, limit=args.limit)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 1
@@ -791,12 +791,14 @@ def parser() -> argparse.ArgumentParser:
     cd.add_argument("file", nargs="?", help="the answer's JSON (default: standard input)")
     cd.set_defaults(func=cmd_check_delivery)
 
-    pk = sub.add_parser("pick", help="the fair pick: endpoints for a job, ranked by the published rule pick-1")
+    pk = sub.add_parser("pick", help="the fair pick: endpoints for a job, ranked by a published rule")
     pk.add_argument("site", help="the published site (URL or directory)")
     pk.add_argument("job", help="what the endpoint should do, in words")
     pk.add_argument("--budget", help="the most to pay for one request, in US dollars")
     pk.add_argument("--market", choices=["x402", "mpp"], help="one market only")
     pk.add_argument("--limit", type=int, default=10)
+    pk.add_argument("--rule", choices=["pick-2", "pick-1"], default="pick-2",
+                    help="pick-2, the public rule (the default), or pick-1, its first")
     pk.add_argument("--key", help="the kid the book's first key must have")
     pk.add_argument("--json", action="store_true")
     pk.set_defaults(func=cmd_pick)
