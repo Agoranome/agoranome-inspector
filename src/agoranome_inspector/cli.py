@@ -729,12 +729,18 @@ def cmd_buyer_test(args) -> int:
 def cmd_verdict_study(args) -> int:
     from agoranome_inspector import buyers
 
-    found = buyers.verdict_study(rotations=args.rotations)
+    if args.design == 1:
+        found = buyers.verdict_study(rotations=args.rotations)
+        shown = {"counts": found["counts"], "fisher_one_sided_p": found["fisher_one_sided_p"]}
+        answered = sum(c["answered"] for c in found["counts"].values())
+    else:
+        chosen = tuple(dict.fromkeys(args.model)) if args.model else buyers.STUDY_MODELS
+        found = buyers.verdict_study2(rotations=args.rotations, study_models=chosen)
+        shown = {"by_model": found["by_model"], "stopped": found["stopped"]}
+        answered = sum(c["answered"] for c in found["pooled"]["counts"].values())
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
-    print(json.dumps({"counts": found["counts"], "fisher_one_sided_p": found["fisher_one_sided_p"],
-                      "out": args.out}, sort_keys=True))
-    answered = sum(c["answered"] for c in found["counts"].values())
+    print(json.dumps({**shown, "out": args.out}, sort_keys=True))
     return 0 if answered else 2
 
 
@@ -1001,9 +1007,14 @@ def parser() -> argparse.ArgumentParser:
                     help="the lab's /openapi.json (only api.agoranome.com is read)")
     bt.set_defaults(func=cmd_buyer_test)
 
-    vs = sub.add_parser("verdict-study", help="once: does a shown verdict move a buying model? (offers we wrote)")
+    vs = sub.add_parser("verdict-study", help="by hand: does a shown verdict move a buying model? (offers we wrote)")
     vs.add_argument("--out", required=True)
     vs.add_argument("--rotations", type=int, default=3, choices=range(1, 4))
+    vs.add_argument("--design", type=int, default=2, choices=(1, 2),
+                    help="2 (default, 18 Nov 2026): one listed price a set, an overcharge and a payee trap, three "
+                         "models; 1: the first design of 11 Nov 2026")
+    vs.add_argument("--model", action="append", help="with --design 2: a model to ask (repeat); the three "
+                                                     "STUDY_MODELS if omitted")
     vs.set_defaults(func=cmd_verdict_study)
 
     d = sub.add_parser("doctor", help="open an issue on a held or failed weekly run, with a model's reading")

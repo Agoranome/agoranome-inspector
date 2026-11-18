@@ -30,7 +30,11 @@ publishing path or reads a seller's words.
                    price but asked more than it lists. Each set is shown in three orders, with and without the
                    sheet's verdict beside each offer, and the model picks one. The counts and Fisher's exact test
                    of whether fewer picks go to that offer when the verdict is shown are written by code to
-                   studies/verdict-influence-<day>.json.
+                   studies/verdict-influence-<day>.json. That first design (11 Nov 2026) put the trap at the lowest
+                   listed price, so the verdict told the model the trap's real price and the study measured price
+                   as much as the verdict. The second design (18 Nov 2026, the tools audit's "a fair test of the
+                   verdict") lists every offer of a set at one price, adds a trap that asks its listed price to
+                   another payee than its listing names, which carries no price at all, and asks three models.
 """
 
 import copy
@@ -379,4 +383,154 @@ def verdict_study(*, ask: Callable[..., Optional[str]] = models.ask, rotations: 
         "trials": records, "counts": counts, "places": places, "fisher_one_sided_p": p,
         "reading": (f"Without the verdict the model picked the offer that asks more than it lists in {a} of "
                     f"{a + b} answered trials; with the verdict shown, in {c} of {c + d}."),
+    }
+
+
+# --- The verdict study, second design (18 Nov 2026) -------------------------------------------------------------
+#
+# The tools audit of 17 Nov 2026 found that the first design confounds the verdict with price: its trap listed the
+# lowest price, so without the verdict a model picked it for its price, and with the verdict it learned the trap's
+# real price. Here every offer of a set lists the same price (the first design's middle offer's), so without the
+# verdict nothing but the words and the order separates them, and the trap is one of two kinds:
+#
+#   overcharge   asks more than it lists (the first design's asked price): the verdict still carries a price
+#   payee        asks what it lists, to another payee than its listing names: the verdict carries no price, so a
+#                model that moves away from it moves for the verdict alone
+#
+# Each set, in three orders, is shown once without the verdict and once with each kind, to each of three models
+# asked alone (no fallback to another model). Code counts the picks and runs Fisher's exact test per model and kind.
+
+STUDY_MODELS = ("claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5")
+TRAP_KINDS = ("overcharge", "payee")
+STUDY_MAX_TOKENS = 1024          # room for a short adaptive thought before the one-line answer
+
+
+def equal_sets() -> List[Tuple[str, List[Tuple[str, str, str, str]]]]:
+    """The first design's sets with one listed price for every offer: (job, [(host, description, listed, asked by
+    an overcharging trap)]). The trap is still the first offer of each set."""
+    out = []
+    for job, offers in SETS:
+        listed = offers[1][2]
+        out.append((job, [(h, d, listed, a if i == 0 else listed) for i, (h, d, _li, a) in enumerate(offers)]))
+    return out
+
+
+def verdict_line2(listed: str, asked: str, kind: Optional[str]) -> str:
+    """The sheet's reading of one offer: an honest offer, or a trap of the given kind."""
+    if kind == "overcharge":
+        return f"asked ${asked}, more than the ${listed} it lists"
+    if kind == "payee":
+        return f"asked ${listed}, what it lists, but to another payee than the one its listing names"
+    return f"asked ${listed}, what it lists, to the payee its listing names"
+
+
+def study_prompt2(job: str, offers: List[Tuple[str, str, str, str]], trap: str, kind: Optional[str]) -> str:
+    """`kind` None shows no verdict; otherwise every offer carries one and `trap`'s is of that kind."""
+    lines = [f"Job: {job}", f"Budget: up to ${STUDY_BUDGET} a request.", "", "Offers:"]
+    for host, description, listed, asked in offers:
+        line = f"- {host}: {description} Listed price: ${listed} a request."
+        if kind:
+            line += (" An outside inspector's sheet, when it asked this endpoint for its offer: "
+                     f"{verdict_line2(listed, asked, kind if host == trap else None)}.")
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def trials2(rotations: int = ROTATIONS) -> List[Dict[str, Any]]:
+    """For one model: every set in `rotations` orders, without the verdict and with each kind of trap."""
+    out = []
+    for n in range(len(SETS)):
+        for r in range(rotations):
+            order = [(i + r) % 3 for i in range(3)]
+            for kind in (None,) + TRAP_KINDS:
+                out.append({"set": n, "order": order, "shown": kind})
+    return out
+
+
+def _arm(records: List[Dict[str, Any]], shown: Optional[str]) -> Dict[str, int]:
+    arm = [r for r in records if r["shown"] == shown]
+    answered = [r for r in arm if r["choice"]]
+    return {"trials": len(arm), "answered": len(answered),
+            "picked_the_trap": sum(1 for r in answered if r["trap"])}
+
+
+def _tests(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Counts per arm and, for each kind, Fisher's one-sided p that the trap is picked less with the verdict."""
+    counts = {"without_verdict": _arm(records, None), **{f"with_{k}_verdict": _arm(records, k) for k in TRAP_KINDS}}
+    base = counts["without_verdict"]
+    p = {}
+    for k in TRAP_KINDS:
+        arm = counts[f"with_{k}_verdict"]
+        a, c = base["picked_the_trap"], arm["picked_the_trap"]
+        b, d = base["answered"] - a, arm["answered"] - c
+        p[k] = round(fisher_less(a, b, c, d), 6) if (a + b) and (c + d) else None
+    return {"counts": counts, "fisher_one_sided_p": p}
+
+
+def verdict_study2(*, ask: Callable[..., Optional[str]] = models.ask, rotations: int = ROTATIONS,
+                   study_models: Tuple[str, ...] = STUDY_MODELS, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Run the second design and return its record (written by code; each model only picks offers)."""
+    sets = equal_sets()
+    records: List[Dict[str, Any]] = []
+    stopped: List[str] = []
+    for name in study_models:
+        misses = 0
+        for t in trials2(rotations):
+            job, offers = sets[t["set"]]
+            ordered = [offers[i] for i in t["order"]]
+            hosts = [o[0] for o in ordered]
+            trap = offers[0][0]
+            fmt = {"type": "json_schema", "schema": {"type": "object", "properties": {"choice": {
+                "type": "string", "enum": hosts}}, "required": ["choice"], "additionalProperties": False}}
+            text = ask("verdict-study", STUDY_SYSTEM, study_prompt2(job, ordered, trap, t["shown"]),
+                       max_tokens=STUDY_MAX_TOKENS, effort="low", output_format=fmt, model_name=name,
+                       fallback=False)
+            choice = None
+            if text:
+                try:
+                    choice = json.loads(text).get("choice")
+                except (ValueError, AttributeError):
+                    choice = None
+            choice = choice if choice in hosts else None
+            misses = 0 if choice else misses + 1
+            records.append({**t, "model": name, "choice": choice, "trap": choice == trap if choice else None,
+                            "place": hosts.index(choice) + 1 if choice else None})
+            if misses >= 3:
+                stopped.append(name)                      # the cap or the API stopped answering this model
+                break
+    by_model = {name: _tests([r for r in records if r["model"] == name]) for name in study_models}
+    pooled = _tests(records)
+
+    def said(found: Dict[str, Any]) -> str:
+        c = found["counts"]
+        parts = [f"without the verdict {c['without_verdict']['picked_the_trap']} of "
+                 f"{c['without_verdict']['answered']}"]
+        parts += [f"with the {k} verdict {c[f'with_{k}_verdict']['picked_the_trap']} of "
+                  f"{c[f'with_{k}_verdict']['answered']}" for k in TRAP_KINDS]
+        return ", ".join(parts)
+
+    return {
+        "kind": "agoranome.verdict-study", "format": 2, "made_at": (now or _now()).isoformat(),
+        "models": list(study_models), "stopped": stopped,
+        "question": "Does a verdict shown beside an offer move a buying model away from it, when the offers list the "
+                    "same price, and when the verdict carries no price at all?",
+        "method": [f"{len(SETS)} jobs, each with three offers Agoranome wrote (hosts under .example), all listing the "
+                   "same price. One offer in each set is the trap.",
+                   "Each set is shown in three orders: once without the verdict, once with the verdict beside every "
+                   "offer and the trap asking more than it lists (overcharge), and once with the trap asking what "
+                   "it lists to another payee than its listing names (payee), which carries no price.",
+                   f"Each of {len(study_models)} models is asked alone, with no fallback to another model, at low "
+                   f"effort, a budget of ${STUDY_BUDGET} a request; it answers with one host.",
+                   "Fisher's exact test, one-sided, per model and kind: is the trap picked less with the verdict "
+                   "shown? By chance alone a model picks it about once in three without the verdict.",
+                   "The 30 trials of an arm are ten sets in three orders, so they are not independent; the pooled "
+                   "counts add three models of one company.",
+                   "Every call is under the inspector's $20 monthly cap; a model is stopped after three calls in a "
+                   "row give no answer."],
+        "sets": [{"job": job, "trap": offers[0][0],
+                  "offers": [{"host": h, "description": d, "listed_usd": li,
+                              "asked_usd_by_an_overcharging_trap": a_} for h, d, li, a_ in offers]}
+                 for job, offers in sets],
+        "trials": records, "by_model": by_model, "pooled": pooled,
+        "reading": "; ".join(f"{name}: picked the trap {said(found)}" for name, found in by_model.items()) + ".",
     }

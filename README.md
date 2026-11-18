@@ -556,12 +556,16 @@ With the secret `ANTHROPIC_API_KEY` set, five jobs use a model (`claude-opus-5-5
   the listing, and again with the rewrite's words; and drops any rewrite with a number not in the listing or the
   measurements, a claim of standing, or words aimed at agents. It is written to `buyer-test/<sheet id>.json`,
   outside the book. The rewrites are drafts for the lab's operator; nothing applies them.
-- **The verdict study** (once, by hand: `.github/workflows/verdict-study.yml`). Does a verdict shown beside an offer
-  move a buying model? Ten jobs, each with three offers Agoranome wrote on hosts under `.example`; in each set the
-  offer that lists the lowest price asked more than it lists. Each set is shown in three orders, with and without
-  the inspector's verdict beside every offer, and the model picks one. Code counts the picks and runs Fisher's
-  exact test; the result goes to `studies/verdict-influence-<day>.json` on the site and the run's artifact. Sixty
-  short calls, well under a dollar at the listed prices.
+- **The verdict study** (by hand: `.github/workflows/verdict-study.yml`). Does a verdict shown beside an offer move a
+  buying model? Ten jobs, each with three offers Agoranome wrote on hosts under `.example`. The first design (11 Nov
+  2026, `--design 1`) gave the trap the lowest listed price and had it ask more, so the verdict told the model the
+  trap's real price: it measured price as much as the verdict. The second design (18 Nov 2026, the default) lists
+  every offer of a set at one price, and the trap is either an overcharge (asks more than it lists) or a payee
+  mismatch (asks its listed price to another payee than its listing names), a verdict with no price in it. Each set is
+  shown in three orders, without the verdict and with each kind, to three models (the current Haiku, Sonnet and Opus,
+  `buyers.STUDY_MODELS`), each asked alone with no fallback (`--model` to choose others). Code counts the picks and
+  runs Fisher's exact test per model and kind; the result goes to `studies/verdict-influence-<day>.json` on the site
+  and the run's artifact. 270 short calls, about $0.35 (the first design's 60 calls cost $0.14).
 - **The monthly red-team** (`.github/workflows/red-team.yml`, on the 2nd). A model reads this repository's code
   for ways a seller, a network or a mistake could make a sheet wrong or the run unsafe. The findings are sealed
   (AES-256-GCM, key derived from the signing key) before they go into a public issue, so an unfixed weakness is
