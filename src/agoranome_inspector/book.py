@@ -40,7 +40,7 @@ from agoranome_inspector.canonical import ZERO_HASH, canonical, digest
 from agoranome_inspector.keys import Signer, verify_signature
 
 KINDS = ("key", "sheet", "changes", "links", "pick", "anchor", "pledge", "shelf", "reports", "note", "statement",
-         "close", "signs", "bestbuy", "dispute", "answer", "gates", "restatement")
+         "close", "signs", "bestbuy", "dispute", "answer", "gates", "restatement", "trigger")
 
 
 def utc_now() -> str:

@@ -106,3 +106,69 @@ def test_the_study_stops_when_the_model_stops_answering_and_fisher_is_right():
     assert buyers.fisher_less(3, 1, 0, 4) == pytest.approx(4 / 56)
     # [[2, 2], [2, 2]]: P(c <= 2) = (C(4,0)C(4,4) + C(4,1)C(4,3) + C(4,2)C(4,2)) / C(8,4) = (1 + 16 + 36) / 70
     assert buyers.fisher_less(2, 2, 2, 2) == pytest.approx(53 / 70)
+
+
+def test_the_second_design_lists_one_price_a_set_and_asks_three_models_alone():
+    """C6 (18 Nov 2026): the trap no longer lists the lowest price, a payee trap carries no price, and each model
+    is asked alone."""
+    calls = []
+
+    def ask(use, system, user, **kw):
+        hosts = kw["output_format"]["schema"]["properties"]["choice"]["enum"]
+        calls.append({"user": user, **kw})
+        trap = _trap(hosts)
+        # Haiku ignores every verdict; Sonnet avoids an overcharge only; Opus avoids both kinds.
+        avoid = {"claude-haiku-5-5": (), "claude-sonnet-5-5": ("more than the",),
+                 "claude-opus-5-5": ("more than the", "another payee")}[kw["model_name"]]
+        moved = any(a in user for a in avoid)
+        return json.dumps({"choice": next(h for h in hosts if h != trap) if moved else trap})
+
+    found = buyers.verdict_study2(ask=ask)
+    n = len(buyers.SETS) * buyers.ROTATIONS
+    assert len(calls) == 3 * 3 * n and found["format"] == 2 and found["stopped"] == []
+    assert all(c["fallback"] is False and c["effort"] == "low" for c in calls)
+    assert {c["model_name"] for c in calls} == set(buyers.STUDY_MODELS)
+    # Every offer of a set lists one price; the overcharging trap asks more than it.
+    for s in found["sets"]:
+        assert len({o["listed_usd"] for o in s["offers"]}) == 1
+        trap = next(o for o in s["offers"] if o["host"] == s["trap"])
+        assert float(trap["asked_usd_by_an_overcharging_trap"]) > float(trap["listed_usd"])
+    without = [c["user"] for c in calls if "inspector's sheet" not in c["user"]]
+    payee = [c["user"] for c in calls if "another payee" in c["user"]]
+    assert len(without) == 3 * n and len(payee) == 3 * n
+    assert not any("more than the $" in u for u in payee)        # a payee verdict names no price but the listed one
+    haiku, sonnet, opus = (found["by_model"][m] for m in buyers.STUDY_MODELS)
+    assert haiku["fisher_one_sided_p"] == {"overcharge": 1.0, "payee": 1.0}
+    assert sonnet["fisher_one_sided_p"]["overcharge"] < 1e-6 and sonnet["fisher_one_sided_p"]["payee"] == 1.0
+    assert opus["counts"]["with_payee_verdict"] == {"trials": n, "answered": n, "picked_the_trap": 0}
+    assert found["pooled"]["counts"]["without_verdict"]["picked_the_trap"] == 3 * n
+    assert found["reading"].startswith(f"claude-haiku-5-5: picked the trap without the verdict {n} of {n}")
+
+
+def test_the_second_design_stops_a_model_that_stops_answering():
+    def ask(use, system, user, **kw):
+        if kw["model_name"] == "claude-haiku-5-5":
+            return None
+        hosts = kw["output_format"]["schema"]["properties"]["choice"]["enum"]
+        return json.dumps({"choice": hosts[0]})
+
+    found = buyers.verdict_study2(ask=ask)
+    assert found["stopped"] == ["claude-haiku-5-5"]
+    assert sum(1 for t in found["trials"] if t["model"] == "claude-haiku-5-5") == 3
+    assert found["by_model"]["claude-haiku-5-5"]["fisher_one_sided_p"] == {"overcharge": None, "payee": None}
+    assert found["by_model"]["claude-opus-5-5"]["counts"]["without_verdict"]["answered"] == len(buyers.SETS) * 3
+
+
+def test_the_cli_runs_the_second_design_by_default(tmp_path, monkeypatch, capsys):
+    from agoranome_inspector.cli import main
+
+    seen = {}
+
+    def study(**kw):
+        seen.update(kw)
+        return {"format": 2, "by_model": {}, "stopped": [], "pooled": {"counts": {"without_verdict": {"answered": 1}}}}
+
+    monkeypatch.setattr(buyers, "verdict_study2", study)
+    out = tmp_path / "v.json"
+    assert main(["verdict-study", "--out", str(out), "--model", "claude-haiku-5-5"]) == 0
+    assert seen["study_models"] == ("claude-haiku-5-5",) and json.loads(out.read_text())["format"] == 2

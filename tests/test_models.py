@@ -243,3 +243,14 @@ def test_the_red_team_reads_this_code_and_its_findings_are_sealed(tmp_path, caps
 def test_an_unusable_red_team_answer_is_none():
     assert assist.red_team(".", ask=lambda *a, **k: None) is None
     assert assist.red_team(".", ask=lambda *a, **k: "not json") is None
+
+
+def test_a_named_model_can_be_asked_alone(ledger):
+    """The verdict study's second design asks each model by name, with no fallback to another."""
+    client = FakeClient("Hi.", served="claude-haiku-5-5")
+    assert models.ask("t", "sys", "user", max_tokens=100, client=client, ledger=ledger,
+                      model_name="claude-haiku-5-5", fallback=False) == "Hi."
+    call = client.calls[0]
+    assert call["model"] == "claude-haiku-5-5" and "fallbacks" not in call and "betas" not in call
+    settled = [json.loads(x) for x in ledger.path.read_text().splitlines()][-1]
+    assert settled["model"] == "claude-haiku-5-5" and settled["usd"] == pytest.approx((1000 * 0.10 + 500 * 0.50) / 1e6)

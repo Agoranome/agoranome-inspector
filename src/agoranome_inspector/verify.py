@@ -25,7 +25,8 @@ It checks, in order:
   6. the table: the CSV is the one the book signed and is rebuilt byte for byte from the sheet;
   7. the change log, when there is one: rebuilt from this sheet and the one before, it matches;
   8. each restatement in the book: the sheet it names judged again under the newer rule gives the same file,
-     headline and counts (restate.py).
+     headline and counts (restate.py); a pick table built from a restatement is recomputed from the sheet judged
+     again the same way.
 
 With --recheck N it also asks N rows' endpoints again, unpaid, and says how many still give the same verdict.
 That is a spot check of the inspector's own observations, not a pass or fail: the market moves.
@@ -295,6 +296,21 @@ def check_pick(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entr
     if sheet is None:
         report.add(label, False, f"its sheet {ref.get('id')} could not be read or does not match the book")
         return
+    restated, source = body.get("restatement"), None
+    if restated is not None:
+        # A table built again from a restatement: the restatement must be in the book before it, for the same sheet
+        # and rule, and the table is recomputed from the sheet judged again under that rule.
+        from agoranome_inspector import restate as restate_lib
+
+        source = next((e for e in entries if e["seq"] == (restated or {}).get("seq")), None) \
+            if isinstance(restated, dict) else None
+        if source is None or source["kind"] != "restatement" or source["seq"] > entry["seq"] \
+                or (source["body"].get("sheet") or {}).get("seq") != sheet_entry["seq"] \
+                or (source["body"].get("rule") or {}).get("to") != restated.get("rule") \
+                or (source["body"].get("rule") or {}).get("from") != sheet.get("rule"):
+            report.add(label, False, "names a restatement of its sheet that the book lacks")
+            return
+        sheet = restate_lib.judged(sheet, restated["rule"])
     try:
         data = read(_safe(body["file"]))
     except Exception as e:
@@ -304,13 +320,17 @@ def check_pick(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entr
         report.add(label, False, f"sha256 {sha256_hex(data)}, book says {body.get('sha256')}")
         return
     found = json.loads(data)
+    if (found.get("restated") or {}).get("file") != (source["body"]["file"] if restated is not None else None):
+        report.add(label, False, "the pick table and its book entry disagree on the restatement it was built from")
+        return
     problems = pick_lib.check_table(found, sheet)
     if not problems and (len(found["rows"]) != body.get("rows") or found["left_out"] != body.get("left_out")
                          or found["market"] != body.get("market") or data != canonical(found) + b"\n"):
         problems = ["the book's counts do not match the pick table"]
     report.add(label, not problems,
                f"rule {found.get('rule')}: {len(found['rows']):,} rows in the running, recomputed from "
-               f"{ref.get('id')}" if not problems else "; ".join(problems))
+               f"{ref.get('id')}" + (f" judged again under {restated['rule']}" if restated is not None else "")
+               if not problems else "; ".join(problems))
 
 
 def check_signs(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
@@ -345,6 +365,19 @@ def check_signs(read: Callable[[str], bytes], entries: List[Dict[str, Any]], ent
                f"{t.get('with_repeat_payers', 0)} with repeat payers"
                + (", a few counted again on the chain" if chain_rpc else "") if not problems
                else "; ".join(problems[:5]))
+
+
+def check_trigger(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+                  report: Report) -> None:
+    """The market count that reopens the wider build, counted again from its signs file (trigger.py)."""
+    from agoranome_inspector import trigger as trigger_lib
+
+    body = entry["body"]
+    problems = trigger_lib.check(entry, entries, lambda rel: read(_safe(rel)))
+    report.add(f"market count {entry['seq']}", not problems,
+               f"rule {body.get('rule')}: {body.get('hosts', 0)} of {body.get('hosts_needed')} hosts with "
+               f"{body.get('min_repeat_payers')}+ repeat payers ({'met' if body.get('met') else 'not met'}), "
+               f"recounted from the signs file" if not problems else "; ".join(problems))
 
 
 def check_bestbuy(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
@@ -583,6 +616,9 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
     found_signs = entries_of("signs", entries)
     for entry in (found_signs if every else found_signs[-1:]):
         check_signs(read, entries, entry, report, chain_rpc, post)
+    counts = entries_of("trigger", entries)
+    for entry in (counts if every else counts[-1:]):
+        check_trigger(read, entries, entry, report)
     check_disputes(read, entries, report)
     buys = entries_of("bestbuy", entries)
     for entry in (buys if every else buys[-1:]):

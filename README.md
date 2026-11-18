@@ -48,7 +48,8 @@ The verifier trusts nothing it is told. It checks, in order:
 6. **The table.** The CSV is the one the book signed and is rebuilt byte for byte from the sheet.
 7. **The change log.** Rebuilt from this sheet and the one before, it must match.
 8. **Restatements.** Each sheet judged again under a newer rule (see below) is rebuilt from the sheet, and its
-   file, headline and counts must match the ones the book signed.
+   file, headline and counts must match the ones the book signed. A pick table built from a restatement is
+   recomputed from the sheet judged again the same way.
 
 `--recheck N` also asks N rows' endpoints again, unpaid, and reports how many still give the same verdict. That
 is a spot check of the inspector's own observations, not a pass or fail, because the market moves.
@@ -97,8 +98,17 @@ beside the sheet (`restatements/<sheet>.<rule>.json`) holding the headline befor
 row whose verdict changed with both verdicts, and in words why the rule changed. Its book entry signs the file's
 hash. The sheet itself is never changed, still verifies under its own rule, and the page shows both figures.
 
+When the restated sheet is its market's newest and has a pick table, the same command builds the pick table
+again from the restated verdicts, with the words of the first table, and signs it beside it
+(`picks/<sheet>.<rule>.json`, a `pick` entry that names the restatement). The fair pick ranks "asked what it lists"
+first and reads that from the verdicts, so a table left on the older rule would keep ranking on it. The table's
+rule is still `pick-1`; it says which verdicts it read in `restated`. Every reader ranks by the market's newest pick
+entry, so an older sheet's table is never restated, and the workflow then builds the best-buy file again. A sheet
+restated already is not restated twice, but its pick table still is, once.
+
 Under sheet-2, the 16 Nov 2026 sheet's 431 differing listings (8.1%) are 147 (2.8%), and the 11 Nov sheet's 519
-(9.1%) are 228 (4.0%). A change log between a sheet-1 and a sheet-2 sheet judges the earlier rows again under
+(9.1%) are 228 (4.0%). In the 16 Nov pick table, 284 of the 431 listings ranked last for asking more than they list
+move up to "asked what it lists" under sheet-2. A change log between a sheet-1 and a sheet-2 sheet judges the earlier rows again under
 sheet-2 first, so a change of rule is never counted as a change in the market.
 
 ### The rule, `sheet-1` (sheets of 11 and 16 Nov 2026)
@@ -201,7 +211,8 @@ never a verdict: no row's verdict changes because of it. The verifier rebuilds t
 ## The fair pick
 
 For a job in plain words and the most a buyer will pay for one request, the endpoints that fit, in an order no
-seller can pay for. The rule is `pick-1` (`src/agoranome_inspector/pick.py`):
+seller can pay for. The public rule is `pick-2` (since 18 Nov 2026), below its first rule `pick-1`; both read the
+same signed tables (`src/agoranome_inspector/pick.py`). `pick-1`:
 
 1. **In the running:** the row gave an offer an agent can pay on the newest sheet of its market, with a price per
    request in US dollars (USDC on a main network for x402; for MPP a charge in USDC, pathUSD, USDT0, OUSD or by
@@ -219,13 +230,26 @@ words kept. Stuffing a description with a word buys little: it only has to clear
 order inside the running is honesty, delivery and price. The words are published sorted, so a seller's sentences
 are never republished and no instruction written in a listing reaches a buying agent through the pick.
 
+`pick-2` reads the same tables and changes four things, which every `pick-2` answer states in its `rule_text`:
+
+- **Each word once.** A listing's words are scored by BM25 over its distinct words, so a word said five times
+  counts as once.
+- **A tighter running:** a match at least three quarters as good as the best, instead of half.
+- **Fit before price.** Inside honesty and delivery, the closer fit (the score as a share of the best, rounded down
+  to tenths) ranks ahead of the lower price, so a cheap listing stuffed with the words of many jobs no longer wins
+  each of them.
+- **Two places a seller.** One seller takes at most two places; the rest are counted as `more_from_seller`. Hosts are
+  one seller when they share a pay-to that at most 5 hosts list, or a registrable domain (`sellers.py`), the same
+  seller rule the Agoranome Lab uses. Its free and paid pick rank by `pick-2`.
+
 With each sheet, the weekly run writes `picks/<id>.json`, one row for each listing in the running with the fields
 the order uses and its words, and a `pick` entry in the book with its hash. The verifier recomputes every field
 but the words from the sheet, and checks the words' form. Anyone gets the same order:
 
 ```bash
 agoranome-inspector pick https://inspector.agoranome.com/ "weather forecast for a city" --budget 0.01
-agoranome-inspector mcp      # the same as two MCP tools on stdio: fair_pick and seller_row
+agoranome-inspector pick https://inspector.agoranome.com/ "weather forecast for a city" --rule pick-1   # the first rule
+agoranome-inspector mcp      # the same as two MCP tools on stdio: fair_pick (rule pick-2 or pick-1) and seller_row
 ```
 
 `seller_row` answers one endpoint's row on the newest sheet with its Merkle proof against the signed root. Both
@@ -325,6 +349,16 @@ verifier checks the file against its sheet and, with `--chain`, reads three host
 
 Signs are facts beside a row. No verdict and no rank under `pick-1` or `best-buy-1` uses them; a later rule will say
 so before it does.
+
+### The market count (`reopen-1`)
+
+Agoranome's wider build reopens once **50 x402 hosts each have 25 or more repeat payers** (decided 18 Nov 2026).
+Nobody has to argue it: after each new signs file the weekly run counts the hosts whose pay-to addresses were all
+read and whose payers who came back number 25 or more, and signs the count into the book as a `trigger` entry with
+whether it meets the bar and the first reading that did (`src/agoranome_inspector/trigger.py`,
+`agoranome-inspector trigger SITE`). How many sellers those hosts are under pick-2's seller rule is shown beside the
+count and is never part of the bar. The signs file reads at most a few hundred hosts, the busiest first, so a count
+under the bar is a floor. The verifier counts again from the same signed file.
 
 ## The best buys
 
@@ -522,12 +556,16 @@ With the secret `ANTHROPIC_API_KEY` set, five jobs use a model (`claude-opus-5-5
   the listing, and again with the rewrite's words; and drops any rewrite with a number not in the listing or the
   measurements, a claim of standing, or words aimed at agents. It is written to `buyer-test/<sheet id>.json`,
   outside the book. The rewrites are drafts for the lab's operator; nothing applies them.
-- **The verdict study** (once, by hand: `.github/workflows/verdict-study.yml`). Does a verdict shown beside an offer
-  move a buying model? Ten jobs, each with three offers Agoranome wrote on hosts under `.example`; in each set the
-  offer that lists the lowest price asked more than it lists. Each set is shown in three orders, with and without
-  the inspector's verdict beside every offer, and the model picks one. Code counts the picks and runs Fisher's
-  exact test; the result goes to `studies/verdict-influence-<day>.json` on the site and the run's artifact. Sixty
-  short calls, well under a dollar at the listed prices.
+- **The verdict study** (by hand: `.github/workflows/verdict-study.yml`). Does a verdict shown beside an offer move a
+  buying model? Ten jobs, each with three offers Agoranome wrote on hosts under `.example`. The first design (11 Nov
+  2026, `--design 1`) gave the trap the lowest listed price and had it ask more, so the verdict told the model the
+  trap's real price: it measured price as much as the verdict. The second design (18 Nov 2026, the default) lists
+  every offer of a set at one price, and the trap is either an overcharge (asks more than it lists) or a payee
+  mismatch (asks its listed price to another payee than its listing names), a verdict with no price in it. Each set is
+  shown in three orders, without the verdict and with each kind, to three models (the current Haiku, Sonnet and Opus,
+  `buyers.STUDY_MODELS`), each asked alone with no fallback (`--model` to choose others). Code counts the picks and
+  runs Fisher's exact test per model and kind; the result goes to `studies/verdict-influence-<day>.json` on the site
+  and the run's artifact. 270 short calls, about $0.35 (the first design's 60 calls cost $0.14).
 - **The monthly red-team** (`.github/workflows/red-team.yml`, on the 2nd). A model reads this repository's code
   for ways a seller, a network or a mistake could make a sheet wrong or the run unsafe. The findings are sealed
   (AES-256-GCM, key derived from the signing key) before they go into a public issue, so an unfixed weakness is

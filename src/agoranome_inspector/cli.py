@@ -19,7 +19,7 @@ For anyone:
   proof SITE --resource URL [--id ID]
   verify-receipt SITE PROOF            a receipt's proof from the lab's ledger (URL or file)
 
-  pick SITE JOB [--budget USD] [--market M]   the fair pick: endpoints for a job, by the published rule pick-1
+  pick SITE JOB [--budget USD] [--market M] [--rule R]   the fair pick: endpoints for a job, by pick-2 (or pick-1)
   mcp [SITE]                           the fair pick and the sheet's rows as MCP tools (stdio)
 
 For the inspector's operator:
@@ -35,6 +35,7 @@ For the inspector's operator:
   statement SITE --type T ...          a payout, licence, prize, grant or credit in the accounts (accounts-1)
   close SITE [--period YYYY-MM]        close finished months: what each source earned and what the pledge owes
   signs SITE --rpc RPC                 payers and repeat payers of each x402 seller, from the chain (signs-1)
+  trigger SITE                         the market count that reopens the wider build, from the newest signs (reopen-1)
   best-buy SITE                        one list per kind of job, price and delivery signs side by side (best-buy-1)
   disputes SITE                        copy sellers' disputes from the lab into the book
   answer SITE ID --outcome O --reason R   the operator's answer to one dispute
@@ -168,11 +169,11 @@ def cmd_check_delivery(args) -> int:
 
 def cmd_pick(args) -> int:
     from agoranome_inspector.picking import load_tables, describe
-    from agoranome_inspector.pick import rank
+    from agoranome_inspector.pick import rank_by
 
     try:
         tables = load_tables(args.site, pinned_kid=args.key)
-        found = rank(tables, args.job, args.budget, market=args.market, limit=args.limit)
+        found = rank_by(args.rule, tables, args.job, args.budget, market=args.market, limit=args.limit)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 1
@@ -383,12 +384,24 @@ def cmd_note(args) -> int:
 
 
 def cmd_restate(args) -> int:
-    from agoranome_inspector.publish import restate
+    """Restate a sheet, then its pick table when it is its market's newest (publish.restate_pick). A sheet restated
+    already under the rule is not restated again; its pick table still is, when it was not yet."""
+    from agoranome_inspector.book import Book, entries_of
+    from agoranome_inspector.publish import BOOK, restate, restate_pick
     from agoranome_inspector.rules import CURRENT
 
-    entry = restate(args.site, args.sheet, args.rule or CURRENT, _key(args))
+    rule = args.rule or CURRENT
+    signer = _key(args)
+    entry = next((e for e in reversed(entries_of("restatement", Book(str(Path(args.site) / BOOK)).entries()))
+                  if e["body"]["sheet"]["id"] == args.sheet and e["body"]["rule"]["to"] == rule), None)
+    already = entry is not None
+    if entry is None:
+        entry = restate(args.site, args.sheet, rule, signer)
+    pick = restate_pick(args.site, args.sheet, rule, signer)
     print(json.dumps({"seq": entry["seq"], "hash": entry["hash"], "headline": entry["body"]["headline"],
-                      "changed": entry["body"]["changed"]}))
+                      "changed": entry["body"]["changed"], "already": already,
+                      "pick": {"seq": pick["seq"], "file": pick["body"]["file"], "rows": pick["body"]["rows"]}
+                      if pick else None}))
     return 0
 
 
@@ -483,6 +496,39 @@ def cmd_signs(args) -> int:
     write_index(site, book)
     write_head(site, book)
     print(json.dumps({"seq": kept["seq"], "totals": found["totals"], "complete": found["complete"]}))
+    return 0
+
+
+def cmd_trigger(args) -> int:
+    """The market count that reopens the wider build, from the newest signs file (trigger.py). One entry per signs
+    file; prints counts only."""
+    from agoranome_inspector import signs as signs_lib
+    from agoranome_inspector import trigger
+    from agoranome_inspector.book import Book, entries_of
+    from agoranome_inspector.canonical import sha256_hex
+    from agoranome_inspector.publish import BOOK, write_head, write_index
+
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    found_signs = entries_of("signs", entries)
+    if not found_signs:
+        print(json.dumps({"unchanged": True, "reason": "no signs in the book yet"}))
+        return 0
+    signs_entry = found_signs[-1]
+    earlier = entries_of("trigger", entries)
+    if any((e["body"].get("signs") or {}).get("seq") == signs_entry["seq"] for e in earlier):
+        print(json.dumps({"unchanged": True, "signs": signs_entry["seq"]}))
+        return 0
+    data = (site / signs_entry["body"]["file"]).read_bytes()
+    if sha256_hex(data) != signs_entry["body"]["sha256"]:
+        raise RuntimeError(f"{signs_entry['body']['file']} does not match the hash in the book")
+    body = trigger.body_for(signs_entry, signs_lib.load(data), earlier)
+    kept = book.append(_key(args), "trigger", body)
+    write_index(site, book)
+    write_head(site, book)
+    print(json.dumps({"seq": kept["seq"], "hosts": body["hosts"], "needed": body["hosts_needed"],
+                      "met": body["met"], "first_met": body["first_met"]}))
     return 0
 
 
@@ -683,12 +729,18 @@ def cmd_buyer_test(args) -> int:
 def cmd_verdict_study(args) -> int:
     from agoranome_inspector import buyers
 
-    found = buyers.verdict_study(rotations=args.rotations)
+    if args.design == 1:
+        found = buyers.verdict_study(rotations=args.rotations)
+        shown = {"counts": found["counts"], "fisher_one_sided_p": found["fisher_one_sided_p"]}
+        answered = sum(c["answered"] for c in found["counts"].values())
+    else:
+        chosen = tuple(dict.fromkeys(args.model)) if args.model else buyers.STUDY_MODELS
+        found = buyers.verdict_study2(rotations=args.rotations, study_models=chosen)
+        shown = {"by_model": found["by_model"], "stopped": found["stopped"]}
+        answered = sum(c["answered"] for c in found["pooled"]["counts"].values())
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
-    print(json.dumps({"counts": found["counts"], "fisher_one_sided_p": found["fisher_one_sided_p"],
-                      "out": args.out}, sort_keys=True))
-    answered = sum(c["answered"] for c in found["counts"].values())
+    print(json.dumps({**shown, "out": args.out}, sort_keys=True))
     return 0 if answered else 2
 
 
@@ -779,12 +831,14 @@ def parser() -> argparse.ArgumentParser:
     cd.add_argument("file", nargs="?", help="the answer's JSON (default: standard input)")
     cd.set_defaults(func=cmd_check_delivery)
 
-    pk = sub.add_parser("pick", help="the fair pick: endpoints for a job, ranked by the published rule pick-1")
+    pk = sub.add_parser("pick", help="the fair pick: endpoints for a job, ranked by a published rule")
     pk.add_argument("site", help="the published site (URL or directory)")
     pk.add_argument("job", help="what the endpoint should do, in words")
     pk.add_argument("--budget", help="the most to pay for one request, in US dollars")
     pk.add_argument("--market", choices=["x402", "mpp"], help="one market only")
     pk.add_argument("--limit", type=int, default=10)
+    pk.add_argument("--rule", choices=["pick-2", "pick-1"], default="pick-2",
+                    help="pick-2, the public rule (the default), or pick-1, its first")
     pk.add_argument("--key", help="the kid the book's first key must have")
     pk.add_argument("--json", action="store_true")
     pk.set_defaults(func=cmd_pick)
@@ -907,6 +961,11 @@ def parser() -> argparse.ArgumentParser:
     sg.add_argument("--key-file")
     sg.set_defaults(func=cmd_signs)
 
+    tg = sub.add_parser("trigger", help="the market count that reopens the wider build, from the newest signs")
+    tg.add_argument("site")
+    tg.add_argument("--key-file")
+    tg.set_defaults(func=cmd_trigger)
+
     bb = sub.add_parser("best-buy", help="best-buy sheets: one list per kind of job, price and signs side by side")
     bb.add_argument("site")
     bb.add_argument("--key-file")
@@ -948,9 +1007,14 @@ def parser() -> argparse.ArgumentParser:
                     help="the lab's /openapi.json (only api.agoranome.com is read)")
     bt.set_defaults(func=cmd_buyer_test)
 
-    vs = sub.add_parser("verdict-study", help="once: does a shown verdict move a buying model? (offers we wrote)")
+    vs = sub.add_parser("verdict-study", help="by hand: does a shown verdict move a buying model? (offers we wrote)")
     vs.add_argument("--out", required=True)
     vs.add_argument("--rotations", type=int, default=3, choices=range(1, 4))
+    vs.add_argument("--design", type=int, default=2, choices=(1, 2),
+                    help="2 (default, 18 Nov 2026): one listed price a set, an overcharge and a payee trap, three "
+                         "models; 1: the first design of 11 Nov 2026")
+    vs.add_argument("--model", action="append", help="with --design 2: a model to ask (repeat); the three "
+                                                     "STUDY_MODELS if omitted")
     vs.set_defaults(func=cmd_verdict_study)
 
     d = sub.add_parser("doctor", help="open an issue on a held or failed weekly run, with a model's reading")

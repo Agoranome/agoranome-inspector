@@ -175,6 +175,47 @@ def restate(site_dir: str, sheet_id: str, rule: str, signer: Signer, time: Optio
     return entry
 
 
+def restate_pick(site_dir: str, sheet_id: str, rule: str, signer: Signer,
+                 time: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """The pick table of a restated sheet, built again from the restated verdicts with the words of the sheet's own
+    table, and signed beside it (picks/<id>.<rule>.json). Only for its market's newest sheet: every reader ranks by
+    the market's newest pick entry, so a restated table for an older sheet would replace a newer one. None when
+    there is nothing to do: the sheet has no pick table, is not its market's newest, or its table is restated
+    already."""
+    site = Path(site_dir)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    restatement = next((e for e in reversed(entries_of("restatement", entries))
+                        if e["body"]["sheet"]["id"] == sheet_id and e["body"]["rule"]["to"] == rule), None)
+    if restatement is None:
+        raise RuntimeError(f"sheet {sheet_id} is not restated under {rule}")
+    picks = [e for e in entries_of("pick", entries) if (e["body"].get("sheet") or {}).get("id") == sheet_id]
+    own = next((e for e in picks if not e["body"].get("restatement")), None)
+    if own is None or any((e["body"].get("restatement") or {}).get("rule") == rule for e in picks):
+        return None
+    sheet_entry = next(e for e in entries_of("sheet", entries) if e["body"]["id"] == sheet_id)
+    newest = [e for e in entries_of("sheet", entries)
+              if sheet_lib.market_of(e["body"]) == sheet_lib.market_of(sheet_entry["body"])][-1]
+    if newest["seq"] != sheet_entry["seq"]:
+        return None
+    data = (site / own["body"]["file"]).read_bytes()
+    if sha256_hex(data) != own["body"]["sha256"]:
+        raise RuntimeError(f"{own['body']['file']} does not match the book")
+    words = {r["resource"]: r["words"] for r in json.loads(data)["rows"]}
+    again = restate_lib.judged(load_sheet(site, sheet_entry), rule)
+    found = pick_lib.table(again, words, {"rule": rule, "file": restatement["body"]["file"]})
+    pick_file = restate_lib.pick_file_for(sheet_id, rule)
+    pick_sha = _write(site / pick_file, canonical(found) + b"\n")
+    entry = book.append(signer, "pick", {
+        "rule": found["rule"], "market": found["market"], "sheet": {"seq": sheet_entry["seq"], "id": sheet_id},
+        "file": pick_file, "sha256": pick_sha, "rows": len(found["rows"]), "left_out": found["left_out"],
+        "restatement": {"seq": restatement["seq"], "rule": rule, "replaces": own["body"]["file"]},
+    }, time=time)
+    write_head(site, book)
+    write_index(site, book)
+    return entry
+
+
 def restated_view(entries: List[Dict[str, Any]], sheet_entry: Dict[str, Any]) -> Dict[str, Any]:
     """A sheet entry as the page shows it: with the counts of its newest restatement, when it has one (the sheet
     and its own entry are unchanged; the page says it is restated and links both)."""
@@ -381,11 +422,16 @@ def _pick_section(entries) -> str:
     counts = ", ".join(f"{x['body']['rows']:,} {e(MARKET_WORDS.get(m, (m,))[0])} endpoints"
                        for m, x in sorted(newest.items()))
     files = " · ".join(f"<a href=\"{e(x['body']['file'])}\">{e(x['body']['sheet']['id'])}</a>"
+                       + (f" (its verdicts restated under <code>{e(x['body']['restatement']['rule'])}</code>; "
+                          f"<a href=\"{e(x['body']['restatement']['replaces'])}\">the table first published</a>)"
+                          if x["body"].get("restatement") else "")
                        for _, x in sorted(newest.items()))
     return (f"<h2>The fair pick</h2><p>For a job and a budget, the endpoints that fit, ranked by the published rule "
-            f"<code>{e(pick_lib.RULE)}</code>: those that asked what they list first, then those that promise to "
-            f"settle only on delivery, then the lower price. No seller can pay for a place. In the running this "
-            f"week: {counts}. The tables it ranks: {files}. Anyone gets the same order:</p>"
+            f"<code>{e(pick_lib.RULE2)}</code>: those that asked what they list first, then those that promise to "
+            f"settle only on delivery, then the closer fit, then the lower price, with at most two places for one "
+            f"seller. No seller can pay for a place. Its first rule, <code>{e(pick_lib.RULE)}</code>, put price "
+            f"before fit and still answers with <code>--rule {e(pick_lib.RULE)}</code>; both read the same tables. "
+            f"In the running this week: {counts}. The tables it ranks: {files}. Anyone gets the same order:</p>"
             f"<pre>agoranome-inspector pick &lt;this site's URL&gt; \"weather forecast for a city\" --budget 0.01\n"
             f"agoranome-inspector mcp      # the same as MCP tools, fair_pick and seller_row</pre>\n")
 
@@ -440,6 +486,24 @@ def _bestbuy_section(entries) -> str:
     return (f"<h2>Best buys</h2><p>One list per kind of job, {s['listings']:,} endpoints in {s['categories']} kinds, "
             f"with the real price and the delivery signs side by side.{signed} "
             f"<a href=\"best-buy/index.html\">The best-buy sheets</a>.</p>\n")
+
+
+def _trigger_section(entries) -> str:
+    """The market count that reopens the wider build (trigger.py)."""
+    found = entries_of("trigger", entries)
+    if not found:
+        return ""
+    e = html.escape
+    b = found[-1]["body"]
+    first = b.get("first_met")
+    standing = (f"<strong>met</strong>, first in the signs for sheet {e(str(first.get('sheet')))}" if first and b["met"]
+                else f"met in the signs for sheet {e(str(first.get('sheet')))}, under the bar this week" if first
+                else "<strong>not met</strong>")
+    floor = "" if b.get("complete") else " Not every seller could be read this week, so the count is a floor."
+    return (f"<h2>The market count</h2><p>{e(b['text'])} This week: <strong>{b['hosts']:,}</strong> of "
+            f"{b['hosts_needed']:,} hosts ({b['sellers']:,} sellers), out of {b['counted']:,} counted. The bar is "
+            f"{standing}.{floor} Rule <code>{e(b['rule'])}</code>, decided {e(b['decided'])}; anyone can count it "
+            f"again from <a href=\"{e(b['signs']['file'])}\">the signs file</a>.</p>\n")
 
 
 def _disputes_section(entries) -> str:
@@ -552,9 +616,9 @@ def write_index(site: Path, book: Book) -> None:
                      f"{links_lib.PLATFORM_HOSTS} hosts share are a platform's and link nobody. A link is a fact "
                      f"beside the rows, never a verdict: <a href=\"{e(link_entries[-1]['body']['file'])}\">the "
                      f"links and their evidence</a>.</p>\n")
-    sections += (_pick_section(entries) + _bestbuy_section(entries) + _shelf_section(entries)
-                 + _disputes_section(entries) + _pledge_section(entries) + _accounts_section(entries)
-                 + _gates_section(entries))
+    sections += (_pick_section(entries) + _bestbuy_section(entries) + _trigger_section(entries)
+                 + _shelf_section(entries) + _disputes_section(entries) + _pledge_section(entries)
+                 + _accounts_section(entries) + _gates_section(entries))
     rows = "".join(
         f"<tr><td>{e(sheet_lib.market_of(x['body']))}</td><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
         f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a>"

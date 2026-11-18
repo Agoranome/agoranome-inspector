@@ -15,7 +15,7 @@
 """Model calls, under a hard monthly cap.
 
 Where models are used (the weekly note, the run doctor, the monthly red-team of this code, the weekly buyer test
-of Agoranome's own listings and the one-off verdict study) and what they may not do:
+of Agoranome's own listings and the verdict study, run by hand) and what they may not do:
 
   - No model decides a verdict, sits in the publishing path, or reads sellers' words. The sheet, its change log
     and the book are built, signed, verified and pushed before any model is asked, and a model's text is never
@@ -143,9 +143,11 @@ def _client():
 
 def ask(use: str, system: str, user: str, *, max_tokens: int, effort: str = "medium", stream: bool = False,
         output_format: Optional[Dict[str, Any]] = None, client: Any = None,
-        ledger: Optional[Ledger] = None) -> Optional[str]:
+        ledger: Optional[Ledger] = None, model_name: Optional[str] = None, fallback: bool = True) -> Optional[str]:
     """One model call within the month's cap: its text answer, or None if no call was made or it gave nothing
-    usable. Never raises."""
+    usable. Never raises. `model_name` asks a given model instead of INSPECTOR_MODEL; `fallback=False` asks that
+    model alone, so a declined call is no answer rather than another model's (a study comparing models needs
+    that)."""
     try:
         if ledger is None:
             path = os.environ.get("INSPECTOR_SPEND_LEDGER")
@@ -164,7 +166,7 @@ def ask(use: str, system: str, user: str, *, max_tokens: int, effort: str = "med
             if client is None:
                 _say(f"{use}: the anthropic package is not installed, so no call")
                 return None
-        name = model()
+        name = model_name or model()
         messages = [{"role": "user", "content": user}]
         counted = client.messages.count_tokens(model=name, system=system, messages=messages).input_tokens
         worst = worst_case(int(counted), max_tokens)
@@ -180,8 +182,9 @@ def ask(use: str, system: str, user: str, *, max_tokens: int, effort: str = "med
         kwargs: Dict[str, Any] = {
             "model": name, "max_tokens": max_tokens, "system": system, "messages": messages,
             "output_config": {"effort": effort, **({"format": output_format} if output_format else {})},
-            "betas": [FALLBACK_BETA], "fallbacks": "default",
         }
+        if fallback:
+            kwargs.update({"betas": [FALLBACK_BETA], "fallbacks": "default"})
         try:
             if stream:
                 with client.beta.messages.stream(**kwargs) as s:

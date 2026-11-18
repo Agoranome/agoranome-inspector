@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The fair pick: for a job and a budget, the paid endpoints that fit, ranked by the published rule `pick-1`.
+"""The fair pick: for a job and a budget, the paid endpoints that fit, ranked by a published rule: `pick-2`, the
+public one since 18 Nov 2026, or `pick-1`, its first. Both read the same signed pick table.
 
 A buying agent says what it needs done ("weather forecast for a city") and what it will pay at most. The pick
 answers with the listings that fit, in an order no seller can pay for:
@@ -32,10 +33,19 @@ lower case, stop words dropped, a light suffix rule, each word counted at most t
 distinct words kept. The words are published sorted, so a seller's sentences are never republished and no
 instruction written in a listing survives into the pick. Scores are rounded to six places before they are compared.
 
+That is pick-1. Under it a cheap listing stuffed with the words of many jobs ranks first for each of them (it
+matches half as well as the specialist, which is enough, and it is cheaper), and one host with ten cheap clones takes
+all ten places. pick-2 (RULE2_TEXT, which every pick-2 answer carries) reads the same table and changes four things:
+each word of a listing counts once; the running is three quarters of the best match; fit, in tenths of the best
+match, ranks ahead of price; and one seller (sellers.py: hosts sharing a pay-to few hosts list, or a registrable
+domain) takes at most two places, the rest counted as more_from_seller. The Agoranome Lab's paid and free pick rank
+by pick-2 and name it.
+
 Each week, with each sheet, the book gets a `pick` entry naming the sheet and the hash of the pick table: one row
 for each listing in the running, with the fields the order uses and its words. The verifier recomputes every row
 but the words from the sheet; the words are checked for form, and they came from the index the same day. Anyone
-can run the pick on the published table and must get the same order.
+can run either rule on the published table and must get the same order. The table's own `rule` field stays
+`pick-1`: it names the table's format, which both rules read.
 """
 
 import math
@@ -45,7 +55,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlsplit
 
-from agoranome_inspector import networks
+from agoranome_inspector import networks, sellers
 
 RULE = "pick-1"
 KIND = "agoranome.pick-table"
@@ -248,8 +258,11 @@ def table_row(market: str, row: Dict[str, Any], found_words: List[str]) -> Tuple
     }, "in"
 
 
-def table(sheet: Dict[str, Any], words_by_resource: Dict[str, List[str]]) -> Dict[str, Any]:
-    """The pick table of one sheet, from its rows and the words each listing had the same day."""
+def table(sheet: Dict[str, Any], words_by_resource: Dict[str, List[str]],
+          restated: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The pick table of one sheet, from its rows and the words each listing had the same day. A table built from a
+    sheet judged again under a newer rule (restate.judged) says so in `restated`: that rule and the restatement's
+    file."""
     from agoranome_inspector import sheet as sheet_lib
 
     market = sheet_lib.market_of(sheet)
@@ -261,23 +274,30 @@ def table(sheet: Dict[str, Any], words_by_resource: Dict[str, List[str]]) -> Dic
         else:
             rows.append(found)
     rows.sort(key=lambda r: r["resource"])
-    return {"kind": KIND, "format": FORMAT, "rule": RULE, "market": market, "sheet": sheet["id"],
-            "method": METHOD, "left_out": dict(sorted(left_out.items())), "rows": rows}
+    out = {"kind": KIND, "format": FORMAT, "rule": RULE, "market": market, "sheet": sheet["id"],
+           "method": METHOD, "left_out": dict(sorted(left_out.items())), "rows": rows}
+    if restated is not None:
+        out["restated"] = {"rule": restated["rule"], "file": restated["file"]}
+    return out
 
 
 def check_table(found: Dict[str, Any], sheet: Dict[str, Any]) -> List[str]:
-    """Recompute a pick table from its sheet; the words can only be checked for form."""
+    """Recompute a pick table from its sheet; the words can only be checked for form. A restated table is checked
+    against the sheet judged again under the rule it names (restate.judged), which the caller passes."""
     if found.get("rule") != RULE:
         return [f"unknown pick rule {found.get('rule')!r}"]
     if found.get("sheet") != sheet.get("id"):
         return [f"the pick table names sheet {found.get('sheet')}, not {sheet.get('id')}"]
+    restated = found.get("restated")
+    if restated is not None and (not isinstance(restated, dict) or restated.get("rule") != sheet.get("rule")):
+        return ["the restated pick table was not checked against its sheet judged again under its rule"]
     by_resource = {r.get("resource"): r for r in found.get("rows") or []}
     if len(by_resource) != len(found.get("rows") or []):
         return ["the pick table names a resource twice"]
     bad = [r for r, row in by_resource.items() if not words_ok(row.get("words"))]
     if bad:
         return [f"{len(bad)} row(s) of the pick table carry words not in the published form"]
-    again = table(sheet, {r: row["words"] for r, row in by_resource.items()})
+    again = table(sheet, {r: row["words"] for r, row in by_resource.items()}, restated)
     if {k: v for k, v in again.items() if k != "method"} != {k: v for k, v in found.items() if k != "method"}:
         return ["the pick table does not follow from its sheet"]
     return []
@@ -365,3 +385,98 @@ def rank(tables: List[Dict[str, Any]], job: str, budget_usd: Any = None, *, mark
         "picked": picked,
         "note": None if query else "The job has no words the pick can match; say what the endpoint should do.",
     }
+
+
+# --- pick-2: the same tables, fit before price and two places a seller -----------------------------------------
+
+RULE2 = "pick-2"
+RULES = (RULE2, RULE)   # the public one first
+BAND2 = 0.75       # in the running: a match at least three quarters as good as the best
+FIT_STEPS = 10     # fit is ranked in tenths of the best match, ahead of price
+PER_SELLER = 2     # the most places one seller takes
+RULE2_TEXT = (
+    "pick-2 over the inspector's signed pick tables: score each row by BM25 (k1 1.2, b 0.75) over its distinct "
+    "words, so a word said twice counts once; keep rows under the budget scoring at least 0.75 of the best; sort by "
+    "honest on price, then a Fair Offer block, then fit (the score as a share of the best, rounded down to tenths, "
+    "higher first), then the lower price, then the higher score, then the resource; show at most 2 rows per seller "
+    "(hosts are one seller when they share a pay-to that at most 5 hosts list, or a registrable domain), and count "
+    "the rest as more_from_seller.")
+
+
+def rank2(tables: List[Dict[str, Any]], job: str, budget_usd: Any = None, *, market: Optional[str] = None,
+          limit: int = LIMIT) -> Dict[str, Any]:
+    """The fair pick by pick-2 (RULE2_TEXT) over the same tables pick-1 ranks."""
+    job = str(job or "").strip()[:MAX_JOB]
+    query = sorted(set(tokens(job)))
+    budget = _decimal(budget_usd)
+    limit = max(1, min(int(limit or LIMIT), MAX_LIMIT))
+    chosen = [t for t in tables if market in (None, "", t.get("market"))]
+    rows = [r for t in chosen for r in t.get("rows") or []]
+    index = Index([{"words": sorted(set(r["words"]))} for r in rows])
+    left_out: Counter = Counter()
+    scored = []
+    for i, r in enumerate(rows):
+        if budget is not None and Decimal(r["price_usd"]) > budget:
+            left_out["over_budget"] += 1
+            continue
+        s = index.score(i, query) if query else 0.0
+        if s > 0:
+            scored.append((s, r))
+        else:
+            left_out["no_match"] += 1
+    best = max((s for s, _ in scored), default=0.0)
+    floor = round(best * BAND2, PLACES)
+    running = [(s, r) for s, r in scored if s >= floor]
+    left_out["weak_match"] += len(scored) - len(running)
+
+    def fit(s: float) -> int:
+        return min(FIT_STEPS, int(math.floor(s / best * FIT_STEPS + 1e-9))) if best else 0
+
+    running.sort(key=lambda sr: (sr[1]["honest"], sr[1]["delivery"], -fit(sr[0]), Decimal(sr[1]["price_usd"]),
+                                 -sr[0], sr[1]["resource"]))
+    seller_of = sellers.seller_of(rows, lambda r: str(r.get("host") or ""),
+                                  lambda r: str((r.get("pay") or {}).get("pay_to") or "")) if running else {}
+
+    def seller(r: Dict[str, Any]) -> str:
+        host = str(r.get("host") or "").strip().lower()
+        return seller_of.get(host) or host or str(r["resource"])
+
+    shown: Counter = Counter()
+    in_running: Counter = Counter(seller(r) for _, r in running)
+    picked = []
+    for s, r in running:
+        who = seller(r)
+        if shown[who] >= PER_SELLER:
+            left_out["same_seller"] += 1
+            continue
+        if len(picked) == limit:
+            continue
+        shown[who] += 1
+        picked.append((s, r, who))
+    out = []
+    for n, (s, r, who) in enumerate(picked, 1):
+        out.append({
+            "rank": n, "resource": r["resource"], "market": r["market"], "url": r["url"], "method": r["method"],
+            "host": r["host"], "seller": who, "category": r["category"], "price_usd": r["price_usd"], "pay": r["pay"],
+            "honest": HONEST[r["honest"]], "delivery": "a Fair Offer block" if r["delivery"] == 0 else None,
+            "match": s, "fit": round(fit(s) / FIT_STEPS, 1),
+            "more_from_seller": in_running[who] - shown[who],
+        })
+    return {
+        "rule": RULE2, "job": job, "words": query, "budget_usd": None if budget is None else _usd_text(budget),
+        "market": market or None,
+        "from": [{"market": t.get("market"), "sheet": t.get("sheet"), "entry": t.get("entry")} for t in chosen],
+        "in_running": len(running), "shown": len(out),
+        "left_out": {k: left_out[k] for k in ("over_budget", "no_match", "weak_match", "same_seller")},
+        "picked": out,
+        "note": None if query else "The job has no words the pick can match; say what the endpoint should do.",
+        "rule_text": RULE2_TEXT,
+    }
+
+
+def rank_by(rule: str, tables: List[Dict[str, Any]], job: str, budget_usd: Any = None, *,
+            market: Optional[str] = None, limit: int = LIMIT) -> Dict[str, Any]:
+    """The fair pick by the rule named: pick-2 or pick-1."""
+    if rule not in RULES:
+        raise ValueError(f"rule is {' or '.join(RULES)}, not {rule!r}")
+    return (rank2 if rule == RULE2 else rank)(tables, job, budget_usd, market=market, limit=limit)

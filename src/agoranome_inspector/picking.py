@@ -83,9 +83,11 @@ def describe(found: Dict[str, Any]) -> str:
     for p in found["picked"]:
         lines.append(f"{p['rank']:>2}. ${p['price_usd']:<10} {p['market']:<5} {p['resource']}")
         lines.append(f"    {p['honest']}" + (f"; {p['delivery']}" if p.get("delivery") else "")
-                     + f"; match {p['match']}")
+                     + f"; match {p['match']}" + (f", fit {p['fit']}" if "fit" in p else "")
+                     + (f"; {p['more_from_seller']} more from this seller" if p.get("more_from_seller") else ""))
     left = found["left_out"]
     lines.append(f"{found['in_running']} in the running; left out: {left['over_budget']} over the budget, "
-                 f"{left['weak_match']} weaker matches, {left['no_match']} no match.")
+                 f"{left['weak_match']} weaker matches, {left['no_match']} no match"
+                 + (f", {left['same_seller']} past a seller's two places." if "same_seller" in left else "."))
     lines.append("Sheets: " + ", ".join(f"{t['sheet']}" for t in found["from"]))
     return "\n".join(lines)

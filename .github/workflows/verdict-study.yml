@@ -1,9 +1,11 @@
 name: Verdict study
 
-# Once, started by hand from the Actions tab: does a verdict shown beside an offer move a buying model away from
-# an offer that asks more than it lists? The offers are ones Agoranome wrote (hosts under .example); the model
-# only picks one offer per trial, and the counts and the test are written by code (src/agoranome_inspector/
-# buyers.py). Every call is under the month's cap (src/agoranome_inspector/models.py). The result goes to
+# Started by hand from the Actions tab: does a verdict shown beside an offer move a buying model away from it?
+# The second design (18 Nov 2026, the default): every offer of a set lists one price, the trap either asks more
+# than it lists or asks its price to another payee than its listing names, and three models are each asked alone,
+# 270 short calls, about $0.35 at the 11 Nov run's cost a call. The offers are ones Agoranome wrote (hosts under
+# .example); a model only picks one offer per trial, and the counts and the test are written by code
+# (src/agoranome_inspector/buyers.py). Every call is under the month's cap (src/agoranome_inspector/models.py). The result goes to
 # studies/ on the published site when there is one, and is kept as the run's artifact either way. It does
 # nothing until the ANTHROPIC_API_KEY secret is set.
 on:
@@ -15,7 +17,7 @@ permissions:
 jobs:
   study:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     concurrency:
       group: model-spend
       cancel-in-progress: false
