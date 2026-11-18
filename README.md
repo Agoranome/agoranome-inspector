@@ -350,6 +350,16 @@ verifier checks the file against its sheet and, with `--chain`, reads three host
 Signs are facts beside a row. No verdict and no rank under `pick-1` or `best-buy-1` uses them; a later rule will say
 so before it does.
 
+### The market count (`reopen-1`)
+
+Agoranome's wider build reopens once **50 x402 hosts each have 25 or more repeat payers** (decided 18 Nov 2026).
+Nobody has to argue it: after each new signs file the weekly run counts the hosts whose pay-to addresses were all
+read and whose payers who came back number 25 or more, and signs the count into the book as a `trigger` entry with
+whether it meets the bar and the first reading that did (`src/agoranome_inspector/trigger.py`,
+`agoranome-inspector trigger SITE`). How many sellers those hosts are under pick-2's seller rule is shown beside the
+count and is never part of the bar. The signs file reads at most a few hundred hosts, the busiest first, so a count
+under the bar is a floor. The verifier counts again from the same signed file.
+
 ## The best buys
 
 Per category on the newest sheets, the ten listings an agent can pay that rank first by `pick-1`'s order with no

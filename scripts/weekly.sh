@@ -59,6 +59,9 @@ if [ -f "$SITE/book.jsonl" ]; then
       echo "::warning::The delivery signs were not read from the chain this week; see the log above."
     fi
   fi
+  # The market count that reopens the wider build: hosts with 25 or more repeat payers in the newest signs, against
+  # a bar of 50 (trigger.py, rule reopen-1). One entry per signs file; nothing when there is no new one.
+  "$INSPECTOR" trigger "$SITE"
   # The shelf report card, graded again from the newest sheets (a new book entry only when something changed).
   "$INSPECTOR" shelf "$SITE"
   # The lab's receipt roots and the 15% pledge's figures, read from its public ledger. A ledger that can't be read,

@@ -35,6 +35,7 @@ For the inspector's operator:
   statement SITE --type T ...          a payout, licence, prize, grant or credit in the accounts (accounts-1)
   close SITE [--period YYYY-MM]        close finished months: what each source earned and what the pledge owes
   signs SITE --rpc RPC                 payers and repeat payers of each x402 seller, from the chain (signs-1)
+  trigger SITE                         the market count that reopens the wider build, from the newest signs (reopen-1)
   best-buy SITE                        one list per kind of job, price and delivery signs side by side (best-buy-1)
   disputes SITE                        copy sellers' disputes from the lab into the book
   answer SITE ID --outcome O --reason R   the operator's answer to one dispute
@@ -498,6 +499,39 @@ def cmd_signs(args) -> int:
     return 0
 
 
+def cmd_trigger(args) -> int:
+    """The market count that reopens the wider build, from the newest signs file (trigger.py). One entry per signs
+    file; prints counts only."""
+    from agoranome_inspector import signs as signs_lib
+    from agoranome_inspector import trigger
+    from agoranome_inspector.book import Book, entries_of
+    from agoranome_inspector.canonical import sha256_hex
+    from agoranome_inspector.publish import BOOK, write_head, write_index
+
+    site = Path(args.site)
+    book = Book(str(site / BOOK))
+    entries = book.entries()
+    found_signs = entries_of("signs", entries)
+    if not found_signs:
+        print(json.dumps({"unchanged": True, "reason": "no signs in the book yet"}))
+        return 0
+    signs_entry = found_signs[-1]
+    earlier = entries_of("trigger", entries)
+    if any((e["body"].get("signs") or {}).get("seq") == signs_entry["seq"] for e in earlier):
+        print(json.dumps({"unchanged": True, "signs": signs_entry["seq"]}))
+        return 0
+    data = (site / signs_entry["body"]["file"]).read_bytes()
+    if sha256_hex(data) != signs_entry["body"]["sha256"]:
+        raise RuntimeError(f"{signs_entry['body']['file']} does not match the hash in the book")
+    body = trigger.body_for(signs_entry, signs_lib.load(data), earlier)
+    kept = book.append(_key(args), "trigger", body)
+    write_index(site, book)
+    write_head(site, book)
+    print(json.dumps({"seq": kept["seq"], "hosts": body["hosts"], "needed": body["hosts_needed"],
+                      "met": body["met"], "first_met": body["first_met"]}))
+    return 0
+
+
 def cmd_bestbuy(args) -> int:
     """Best-buy sheets from the signed pick tables, signs and reports (bestbuy.py). Prints counts only."""
     from agoranome_inspector import bestbuy
@@ -920,6 +954,11 @@ def parser() -> argparse.ArgumentParser:
     sg.add_argument("--budget-seconds", type=float, default=2400)
     sg.add_argument("--key-file")
     sg.set_defaults(func=cmd_signs)
+
+    tg = sub.add_parser("trigger", help="the market count that reopens the wider build, from the newest signs")
+    tg.add_argument("site")
+    tg.add_argument("--key-file")
+    tg.set_defaults(func=cmd_trigger)
 
     bb = sub.add_parser("best-buy", help="best-buy sheets: one list per kind of job, price and signs side by side")
     bb.add_argument("site")

@@ -488,6 +488,24 @@ def _bestbuy_section(entries) -> str:
             f"<a href=\"best-buy/index.html\">The best-buy sheets</a>.</p>\n")
 
 
+def _trigger_section(entries) -> str:
+    """The market count that reopens the wider build (trigger.py)."""
+    found = entries_of("trigger", entries)
+    if not found:
+        return ""
+    e = html.escape
+    b = found[-1]["body"]
+    first = b.get("first_met")
+    standing = (f"<strong>met</strong>, first in the signs for sheet {e(str(first.get('sheet')))}" if first and b["met"]
+                else f"met in the signs for sheet {e(str(first.get('sheet')))}, under the bar this week" if first
+                else "<strong>not met</strong>")
+    floor = "" if b.get("complete") else " Not every seller could be read this week, so the count is a floor."
+    return (f"<h2>The market count</h2><p>{e(b['text'])} This week: <strong>{b['hosts']:,}</strong> of "
+            f"{b['hosts_needed']:,} hosts ({b['sellers']:,} sellers), out of {b['counted']:,} counted. The bar is "
+            f"{standing}.{floor} Rule <code>{e(b['rule'])}</code>, decided {e(b['decided'])}; anyone can count it "
+            f"again from <a href=\"{e(b['signs']['file'])}\">the signs file</a>.</p>\n")
+
+
 def _disputes_section(entries) -> str:
     from agoranome_inspector import disputes as disputes_lib
 
@@ -598,9 +616,9 @@ def write_index(site: Path, book: Book) -> None:
                      f"{links_lib.PLATFORM_HOSTS} hosts share are a platform's and link nobody. A link is a fact "
                      f"beside the rows, never a verdict: <a href=\"{e(link_entries[-1]['body']['file'])}\">the "
                      f"links and their evidence</a>.</p>\n")
-    sections += (_pick_section(entries) + _bestbuy_section(entries) + _shelf_section(entries)
-                 + _disputes_section(entries) + _pledge_section(entries) + _accounts_section(entries)
-                 + _gates_section(entries))
+    sections += (_pick_section(entries) + _bestbuy_section(entries) + _trigger_section(entries)
+                 + _shelf_section(entries) + _disputes_section(entries) + _pledge_section(entries)
+                 + _accounts_section(entries) + _gates_section(entries))
     rows = "".join(
         f"<tr><td>{e(sheet_lib.market_of(x['body']))}</td><td>{e(x['body']['id'])}</td><td>{x['body']['rows']:,}</td>"
         f"<td><a href=\"{e(x['body']['file'])}\">JSON</a> · <a href=\"{e(x['body']['csv']['file'])}\">CSV</a>"

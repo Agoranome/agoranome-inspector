@@ -367,6 +367,19 @@ def check_signs(read: Callable[[str], bytes], entries: List[Dict[str, Any]], ent
                else "; ".join(problems[:5]))
 
 
+def check_trigger(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
+                  report: Report) -> None:
+    """The market count that reopens the wider build, counted again from its signs file (trigger.py)."""
+    from agoranome_inspector import trigger as trigger_lib
+
+    body = entry["body"]
+    problems = trigger_lib.check(entry, entries, lambda rel: read(_safe(rel)))
+    report.add(f"market count {entry['seq']}", not problems,
+               f"rule {body.get('rule')}: {body.get('hosts', 0)} of {body.get('hosts_needed')} hosts with "
+               f"{body.get('min_repeat_payers')}+ repeat payers ({'met' if body.get('met') else 'not met'}), "
+               f"recounted from the signs file" if not problems else "; ".join(problems))
+
+
 def check_bestbuy(read: Callable[[str], bytes], entries: List[Dict[str, Any]], entry: Dict[str, Any],
                   report: Report) -> None:
     """A best-buy file, built again from the entries before it (bestbuy.py)."""
@@ -603,6 +616,9 @@ def verify(source: str, sheet_id: Optional[str] = None, *, pinned_kid: Optional[
     found_signs = entries_of("signs", entries)
     for entry in (found_signs if every else found_signs[-1:]):
         check_signs(read, entries, entry, report, chain_rpc, post)
+    counts = entries_of("trigger", entries)
+    for entry in (counts if every else counts[-1:]):
+        check_trigger(read, entries, entry, report)
     check_disputes(read, entries, report)
     buys = entries_of("bestbuy", entries)
     for entry in (buys if every else buys[-1:]):
